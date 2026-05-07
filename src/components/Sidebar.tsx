@@ -1,3 +1,4 @@
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { Channel } from "../types";
 import {
   PlusIcon,
@@ -14,6 +15,7 @@ type Props = {
   onToggleAuto: (id: string) => void;
   onAddChannel: () => void;
   onDeleteChannel: (id: string) => void;
+  onChannelContextMenu?: (e: ReactMouseEvent, c: Channel) => void;
 };
 
 export function Sidebar({
@@ -23,6 +25,7 @@ export function Sidebar({
   onToggleAuto,
   onAddChannel,
   onDeleteChannel,
+  onChannelContextMenu,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -64,31 +67,38 @@ export function Sidebar({
           {channels.map((c) => (
             <a
               key={c.id}
-              className={`channel-item${c.id === activeChannelId ? " active" : ""}`}
+              className={`channel-item${c.id === activeChannelId ? " active" : ""}${c.pending ? " pending" : ""}`}
               onClick={() => onSelectChannel(c.id)}
+              onContextMenu={(e) => onChannelContextMenu?.(e, c)}
             >
               <span className="avatar" style={{ background: c.avatarGradient }} />
               <span className="name">{c.name}</span>
+              {c.pending ? (
+                <span className="syncing-dot" title="Fetching channel…" />
+              ) : null}
               {c.unread ? <span className="badge unread">{c.unread}</span> : null}
               {c.syncing ? <span className="syncing-dot" title="Syncing" /> : null}
-              <button
-                className="channel-delete-btn"
-                title="Remove channel"
-                aria-label="Remove channel"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteChannel(c.id);
-                }}
-              >
-                <CloseIcon />
-              </button>
+              {c.pending ? null : (
+                <button
+                  className="channel-delete-btn"
+                  title="Remove channel"
+                  aria-label="Remove channel"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteChannel(c.id);
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              )}
               <span
                 className={`auto${c.autoArchive ? " on" : ""}`}
                 title={c.autoArchive ? "Auto-archive on" : "Auto-archive off"}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onToggleAuto(c.id);
+                  if (!c.pending) onToggleAuto(c.id);
                 }}
+                style={c.pending ? { opacity: 0.3, pointerEvents: "none" } : undefined}
               />
             </a>
           ))}

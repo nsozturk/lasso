@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { DownloadProgress, Video, VideoStatus } from "../types";
 import { CheckIcon, CloseIcon, DownloadIcon, KebabIcon } from "../icons";
 import { formatBytes, formatSpeed } from "../format";
@@ -53,9 +53,16 @@ type Props = {
   progress?: DownloadProgress;
   onDownload?: (id: string, audioFormat?: string) => void;
   onCancel?: (id: string) => void;
+  onContextMenu?: (e: ReactMouseEvent, video: Video) => void;
 };
 
-export function VideoCard({ video, progress, onDownload, onCancel }: Props) {
+export function VideoCard({
+  video,
+  progress,
+  onDownload,
+  onCancel,
+  onContextMenu,
+}: Props) {
   const canDownload =
     onDownload && (video.status === "pending" || video.status === "failed");
 
@@ -99,7 +106,10 @@ export function VideoCard({ video, progress, onDownload, onCancel }: Props) {
   }, [menuOpen]);
 
   return (
-    <li className="video-card">
+    <li
+      className="video-card"
+      onContextMenu={(e) => onContextMenu?.(e, video)}
+    >
       <div className={`thumb ${video.thumbClass}`}>
         {video.isNew ? <span className="new-tag">New</span> : null}
         <span className="duration">{video.duration}</span>

@@ -68,6 +68,10 @@ export type Channel = ApiChannel & {
   lastSyncLabel: string;
   unread?: number;
   syncing?: boolean;
+  /** When true this is a frontend-only placeholder while metadata is being
+   * fetched from yt-dlp. UI hides downloads/sync controls and renders
+   * skeletons. */
+  pending?: boolean;
 };
 
 export type Video = ApiVideo & {

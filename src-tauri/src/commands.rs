@@ -603,6 +603,49 @@ pub async fn delete_channel(
     Ok(())
 }
 
+/// Reveal a path in the OS file manager. macOS uses `open -R` (selects the
+/// item in Finder); Linux opens the parent directory via `xdg-open`; Windows
+/// uses `explorer /select,`. Errors out if the path does not exist.
+#[tauri::command]
+pub async fn show_in_finder(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.exists() {
+        return Err(format!("Path no longer on disk: {}", path));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let target = if p.is_dir() {
+            p.clone()
+        } else {
+            p.parent()
+                .map(|x| x.to_path_buf())
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+        };
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path))
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_auto_archive(
     db: State<'_, DbState>,

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ChannelHeader } from "./components/ChannelHeader";
@@ -6,13 +13,15 @@ import { FilterBar, type Filter } from "./components/FilterBar";
 import { VideoCard } from "./components/VideoCard";
 import { SkeletonVideoCard } from "./components/SkeletonVideoCard";
 import { ActivityDrawer } from "./components/ActivityDrawer";
-import { AddChannelSheet } from "./components/AddChannelSheet";
+import { AddChannelSheet, type AddSubmission } from "./components/AddChannelSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { AudioSettingsSheet } from "./components/AudioSettingsSheet";
 import { DownloadAllSheet } from "./components/DownloadAllSheet";
+import { ConfirmDialog } from "./components/ConfirmDialog";
+import { ContextMenu, type ContextMenuItem } from "./components/ContextMenu";
 import { useToast } from "./components/Toast";
 import { api } from "./api";
-import { decorateChannel, decorateVideo } from "./format";
+import { decorateChannel, decorateVideo, gradientFor } from "./format";
 import type {
   Channel,
   DownloadProgress,
@@ -24,6 +33,51 @@ const SEED_POLL_MS = 2000;
 const SEED_MAX_TRIES = 12;
 const VIDEO_POLL_MS = 2500;
 const PROGRESS_POLL_MS = 1000;
+
+type PendingAdd = {
+  tempId: string;
+  url: string;
+  displayName: string;
+  expected: number;
+  mode: "video" | "audio";
+};
+
+function pendingTempId(url: string): string {
+  return `pending:${url}`;
+}
+
+function displayNameFromUrl(url: string): string {
+  const m = url.match(/youtube\.com\/(?:@|c\/|channel\/|user\/)?([^/?#]+)/i);
+  if (m && m[1]) return m[1].replace(/^@/, "");
+  return url.replace(/^https?:\/\//, "").slice(0, 30) || "Loading…";
+}
+
+function makePlaceholderChannel(pa: PendingAdd): Channel {
+  return {
+    id: pa.tempId,
+    name: pa.displayName,
+    handle: null,
+    url: pa.url,
+    subscriberCount: null,
+    avatarUrl: null,
+    autoArchive: false,
+    skipShorts: true,
+    qualityPref: "1080p",
+    formatPref: "mp4",
+    mode: pa.mode,
+    savePath: "",
+    lastSyncedAt: null,
+    createdAt: Math.floor(Date.now() / 1000),
+    videoCount: 0,
+    storageBytes: 0,
+    avatarGradient: gradientFor(pa.tempId),
+    avatarInitial: (pa.displayName[0] ?? "?").toUpperCase(),
+    subscriberLabel: "fetching…",
+    storageGB: 0,
+    lastSyncLabel: "just now",
+    pending: true,
+  };
+}
 
 export default function App() {
   const { toast } = useToast();
@@ -40,6 +94,13 @@ export default function App() {
   const [fetchMap, setFetchMap] = useState<Record<string, FetchProgress>>({});
   const [syncingChannelIds, setSyncingChannelIds] = useState<Set<string>>(new Set());
   const [bulkDownloadingChannels, setBulkDownloadingChannels] = useState<Set<string>>(new Set());
+  const [pendingAdds, setPendingAdds] = useState<Map<string, PendingAdd>>(new Map());
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    items: ContextMenuItem[];
+  } | null>(null);
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -203,7 +264,13 @@ export default function App() {
     [activeChannelId, refreshVideos]
   );
 
-  const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
+  const allChannels = useMemo(() => {
+    const placeholders = Array.from(pendingAdds.values()).map(makePlaceholderChannel);
+    return [...channels, ...placeholders];
+  }, [channels, pendingAdds]);
+
+  const activeChannel = allChannels.find((c) => c.id === activeChannelId) ?? null;
+  const isActivePending = !!activeChannel?.pending;
 
   const handleToggleAuto = useCallback(
     async (id: string) => {
@@ -308,38 +375,133 @@ export default function App() {
     }
   }, [activeChannel, refreshChannels, refreshVideos, syncingChannelIds]);
 
-  const handleChannelAdded = useCallback(
-    async (newId: string) => {
-      await refreshChannels();
-      setActiveChannelId(newId);
+  const handleAddSubmit = useCallback(
+    (item: AddSubmission) => {
+      const tempId = pendingTempId(item.url);
+      const pa: PendingAdd = {
+        tempId,
+        url: item.url,
+        displayName: displayNameFromUrl(item.url),
+        expected: item.initial > 0 ? item.initial : 1,
+        mode: item.mode,
+      };
+      setPendingAdds((prev) => {
+        const next = new Map(prev);
+        next.set(item.url, pa);
+        return next;
+      });
+      setActiveChannelId(tempId);
+
+      api
+        .addChannel(
+          item.url,
+          item.initial,
+          item.quality,
+          item.format,
+          item.skipShorts,
+          item.mode,
+        )
+        .then(async (channel) => {
+          // Pull the real channel into the list, drop the placeholder, and if
+          // the user is still viewing the placeholder switch to the real id so
+          // the skeletons keep flowing into a real channel screen.
+          await refreshChannels();
+          setPendingAdds((prev) => {
+            const next = new Map(prev);
+            next.delete(item.url);
+            return next;
+          });
+          setActiveChannelId((prev) => (prev === tempId ? channel.id : prev));
+          toast(`Added “${channel.name}”`, "success");
+        })
+        .catch((e) => {
+          const msg = String(e).replace(/^Error: /, "");
+          console.error("addChannel failed", msg);
+          setPendingAdds((prev) => {
+            const next = new Map(prev);
+            next.delete(item.url);
+            return next;
+          });
+          // If the active view was this placeholder, fall back to the first
+          // real channel (or null) so the user is not stuck on a dead screen.
+          setActiveChannelId((prev) =>
+            prev === tempId ? (channels[0]?.id ?? null) : prev,
+          );
+          toast(msg, "error");
+        });
     },
-    [refreshChannels]
+    [refreshChannels, channels, toast],
   );
 
-  const handleDeleteChannel = useCallback(
-    async (id: string) => {
-      const ch = channels.find((c) => c.id === id);
-      const name = ch?.name ?? "this channel";
-      if (
-        !window.confirm(
-          `Remove “${name}” from your library?\n\nDownloaded files on disk are kept.`,
-        )
-      ) {
-        return;
+  const handleDeleteChannel = useCallback((id: string) => {
+    setPendingDelete(id);
+  }, []);
+
+  const confirmDeleteChannel = useCallback(async () => {
+    const id = pendingDelete;
+    if (!id) return;
+    setPendingDelete(null);
+    const ch = channels.find((c) => c.id === id);
+    const name = ch?.name ?? "this channel";
+    try {
+      await api.deleteChannel(id, false);
+      if (activeChannelId === id) {
+        setActiveChannelId(null);
       }
+      await refreshChannels();
+      toast(`Removed “${name}”`, "success");
+    } catch (e) {
+      console.error("delete_channel failed", e);
+      toast("Couldn't remove channel", "error");
+    }
+  }, [pendingDelete, channels, activeChannelId, refreshChannels, toast]);
+
+  const showInFinder = useCallback(
+    async (path: string) => {
       try {
-        await api.deleteChannel(id, false);
-        if (activeChannelId === id) {
-          setActiveChannelId(null);
-        }
-        await refreshChannels();
-        toast(`Removed “${name}”`, "success");
+        await api.showInFinder(path);
       } catch (e) {
-        console.error("delete_channel failed", e);
-        toast("Couldn't remove channel", "error");
+        const msg = String(e).replace(/^Error: /, "");
+        toast(msg, "error");
       }
     },
-    [channels, activeChannelId, refreshChannels, toast]
+    [toast],
+  );
+
+  const openChannelContextMenu = useCallback(
+    (e: ReactMouseEvent, channel: Channel) => {
+      e.preventDefault();
+      const items: ContextMenuItem[] = [
+        {
+          label: "Show in Finder",
+          disabled: !channel.savePath || channel.pending,
+          onClick: () => showInFinder(channel.savePath),
+        },
+        {
+          label: "Remove channel",
+          danger: true,
+          disabled: !!channel.pending,
+          onClick: () => handleDeleteChannel(channel.id),
+        },
+      ];
+      setContextMenu({ x: e.clientX, y: e.clientY, items });
+    },
+    [showInFinder, handleDeleteChannel],
+  );
+
+  const openVideoContextMenu = useCallback(
+    (e: ReactMouseEvent, video: Video) => {
+      e.preventDefault();
+      const items: ContextMenuItem[] = [
+        {
+          label: "Show in Finder",
+          disabled: !video.filePath,
+          onClick: () => video.filePath && showInFinder(video.filePath),
+        },
+      ];
+      setContextMenu({ x: e.clientX, y: e.clientY, items });
+    },
+    [showInFinder],
   );
 
   // Derived: filtered video list.
@@ -387,12 +549,13 @@ export default function App() {
   return (
     <div className="app">
       <Sidebar
-        channels={channels}
+        channels={allChannels}
         activeChannelId={activeChannelId ?? ""}
         onSelectChannel={setActiveChannelId}
         onToggleAuto={handleToggleAuto}
         onAddChannel={() => setSheetOpen(true)}
         onDeleteChannel={handleDeleteChannel}
+        onChannelContextMenu={openChannelContextMenu}
       />
 
       <main className="content">
@@ -405,7 +568,19 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <div className="main-scroll">
-          {activeChannel ? (
+          {!activeChannel ? (
+            <EmptyState
+              error={bootError}
+              onAddChannel={() => setSheetOpen(true)}
+            />
+          ) : isActivePending ? (
+            <PendingChannelView
+              channel={activeChannel}
+              expected={
+                pendingAdds.get(activeChannel.url)?.expected ?? 12
+              }
+            />
+          ) : (
             <>
               <ChannelHeader
                 channel={activeChannel}
@@ -451,6 +626,7 @@ export default function App() {
                         progress={progressMap[v.id]}
                         onDownload={handleDownload}
                         onCancel={handleCancel}
+                        onContextMenu={openVideoContextMenu}
                       />
                     ))}
                     {isActiveFetching && activeFetchProgress
@@ -471,11 +647,6 @@ export default function App() {
                 )}
               </ul>
             </>
-          ) : (
-            <EmptyState
-              error={bootError}
-              onAddChannel={() => setSheetOpen(true)}
-            />
           )}
         </div>
       </main>
@@ -484,7 +655,7 @@ export default function App() {
       <AddChannelSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        onAdded={handleChannelAdded}
+        onSubmit={handleAddSubmit}
         existingUrls={channels.map((c) => c.url)}
       />
       <SettingsSheet
@@ -502,7 +673,61 @@ export default function App() {
         onClose={() => setDownloadAllSheetOpen(false)}
         onConfirm={handleDownloadAllConfirm}
       />
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Remove channel"
+        message={
+          pendingDelete
+            ? `Remove “${
+                channels.find((c) => c.id === pendingDelete)?.name ?? "this channel"
+              }” from your library? Downloaded files on disk are kept.`
+            : ""
+        }
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={confirmDeleteChannel}
+        onCancel={() => setPendingDelete(null)}
+      />
+      {contextMenu ? (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function PendingChannelView({
+  channel,
+  expected,
+}: {
+  channel: Channel;
+  expected: number;
+}) {
+  const skeletonCount = Math.min(Math.max(expected, 5), 25);
+  return (
+    <>
+      <article className="channel-header">
+        <div
+          className="ch-avatar"
+          style={{ background: channel.avatarGradient }}
+        >
+          {channel.avatarInitial}
+        </div>
+        <div className="ch-info">
+          <h1>{channel.name}</h1>
+          <div className="ch-meta">Fetching channel info from YouTube…</div>
+        </div>
+      </article>
+      <ul className="video-list">
+        {Array.from({ length: skeletonCount }).map((_, i) => (
+          <SkeletonVideoCard key={`pending-skeleton-${i}`} />
+        ))}
+      </ul>
+    </>
   );
 }
 

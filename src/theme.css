@@ -875,6 +875,65 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
   cursor: not-allowed;
 }
 
+/* Right-click context menu */
+.context-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 200px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  animation: kebab-pop 100ms ease-out;
+}
+.context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.context-menu-item:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.context-menu-item.danger {
+  color: var(--danger);
+}
+.context-menu-item.danger:hover:not(:disabled) {
+  background: rgba(255, 59, 48, 0.92);
+  color: #fff;
+}
+.context-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Danger variant of the primary confirm button (used by ConfirmDialog) */
+.btn-primary.danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn-primary.danger:hover {
+  filter: brightness(0.93);
+}
+
+/* Pending channel placeholder in the sidebar */
+.channel-item.pending {
+  opacity: 0.85;
+}
+.channel-item.pending .name {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
 /* "+ Add another channel" link inside AddChannelSheet */
 .add-row-btn {
   display: inline-flex;

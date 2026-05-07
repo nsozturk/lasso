@@ -52,6 +52,8 @@ export const api = {
   deleteChannel: (channelId: string, deleteFiles?: boolean) =>
     invoke<void>("delete_channel", { channelId, deleteFiles }),
 
+  showInFinder: (path: string) => invoke<void>("show_in_finder", { path }),
+
   downloadVideo: (videoId: string, audioFormat?: string) =>
     invoke<void>("download_video", { videoId, audioFormat }),
 

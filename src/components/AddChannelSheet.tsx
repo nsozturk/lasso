@@ -1,12 +1,23 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useToast } from "./Toast";
 import { CloseIcon, PlusIcon } from "../icons";
+
+export type AddSubmission = {
+  url: string;
+  initial: number;
+  quality: string;
+  format: string;
+  skipShorts: boolean;
+  mode: "video" | "audio";
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
-  onAdded: (channelId: string) => void;
+  /** Called once per URL row when the user clicks submit. App.tsx is
+   * responsible for showing pending state, calling api.addChannel, and
+   * navigating. */
+  onSubmit: (item: AddSubmission) => void;
   existingUrls: string[];
 };
 
@@ -21,8 +32,7 @@ function normalizeUrl(u: string): string {
     .toLowerCase();
 }
 
-export function AddChannelSheet({ open, onClose, onAdded, existingUrls }: Props) {
-  const { toast } = useToast();
+export function AddChannelSheet({ open, onClose, onSubmit, existingUrls }: Props) {
   const [urls, setUrls] = useState<string[]>([""]);
   const [grabMode, setGrabMode] = useState<GrabMode>("now-on");
   const [lastN, setLastN] = useState<number>(25);
@@ -97,25 +107,13 @@ export function AddChannelSheet({ open, onClose, onAdded, existingUrls }: Props)
     const initial =
       grabMode === "now-on" ? 0 : grabMode === "last-n" ? lastN : 1000;
 
-    // Fire-and-forget. Sheet closes immediately so the user can navigate.
-    // Each promise updates the UI when its metadata pass + first video land.
+    // Hand each URL to the parent. App.tsx synthesises a pending channel
+    // (instant sidebar entry + skeleton view), navigates to it, and fires
+    // api.addChannel in the background.
     for (const url of trimmed) {
-      api
-        .addChannel(url, initial, quality, format, skipShorts, mode)
-        .then((channel) => {
-          onAdded(channel.id);
-          toast(`Added “${channel.name}”`, "success");
-        })
-        .catch((e) => {
-          const msg = String(e);
-          console.error("addChannel failed", msg);
-          toast(msg.replace(/^Error: /, ""), "error");
-        });
+      onSubmit({ url, initial, quality, format, skipShorts, mode });
     }
 
-    if (trimmed.length > 1) {
-      toast(`Adding ${trimmed.length} channels…`, "info");
-    }
     reset();
     onClose();
     setSubmitting(false);
