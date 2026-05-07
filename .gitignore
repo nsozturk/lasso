@@ -1,0 +1,38 @@
+# Build artifacts
+dist/
+build/
+target/
+*.dmg
+*.app
+*.exe
+*.AppImage
+
+# Node
+node_modules/
+.pnpm-store/
+.npm/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Local scratch
+tmp/
+*.log
+
+# yt-dlp cache during dev
+.yt-dlp-cache/
