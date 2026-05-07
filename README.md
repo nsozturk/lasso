@@ -58,15 +58,19 @@ machine — channel add → live progress → file on disk. Not packaged into a
 
 ## Coming soon
 
-- Custom Lasso app icon (currently default Tauri icon).
-- Background scheduler (auto-sync every N minutes / hours).
-- Pause / resume buttons (cancel is shipped; pause needs `--continue`).
-- Tauri event channel for progress (replacing the 1-second polling).
-- macOS `.dmg`, Linux AppImage, Windows `.exe` builds — `scripts/fetch-binaries.sh`
-  knows how to fetch yt-dlp + ffmpeg for `aarch64-apple-darwin`,
-  `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
-  and `x86_64-pc-windows-msvc`. After the script runs, `pnpm tauri build`
-  bundles them into the platform installer automatically.
+- **Pause / resume buttons.** Cancel works today (yt-dlp child is
+  SIGKILLed via `kill_on_drop`); pause via `SIGSTOP` + resume via
+  `SIGCONT` and a new `paused` DB state is the next step.
+- **Tauri event channel for progress.** Today the frontend polls
+  `get_active_downloads`/`get_fetch_progress` every 1 to 1.5 seconds;
+  switching to backend `app.emit(...)` would drop the polling overhead.
+- **Auto-download** on auto-sync — newly discovered videos in
+  `auto_archive=true` channels currently land in DB as `pending`. A
+  follow-up could enqueue them automatically via the coordinator.
+- macOS `.dmg`, Linux AppImage, Windows `.exe` releases —
+  `scripts/fetch-binaries.sh` already knows the platforms; running
+  `pnpm tauri build` after `./scripts/fetch-binaries.sh` produces a
+  bundled installer.
 
 ## Run from source
 
