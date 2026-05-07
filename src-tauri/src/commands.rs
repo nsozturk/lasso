@@ -212,17 +212,25 @@ pub async fn download_video(
     coord.enqueue(EnqueuedJob {
         video_id,
         audio_format,
+        video_quality: None,
+        video_format: None,
     });
     Ok(())
 }
 
 /// Enqueue every video in the channel whose status is `pending` or `failed`.
+/// Optional overrides apply to every queued video:
+/// - `audio_format` — extract audio in this format (mutually exclusive with video options).
+/// - `quality` / `format` — video quality + container override (when no audio_format).
 /// Returns the number of newly-queued videos.
 #[tauri::command]
 pub async fn download_all_pending(
     db: State<'_, DbState>,
     coordinator: State<'_, CoordinatorState>,
     channel_id: String,
+    audio_format: Option<String>,
+    quality: Option<String>,
+    format: Option<String>,
 ) -> Result<i64, String> {
     let db = db.inner().clone();
     let coord = coordinator.inner().clone();
@@ -253,7 +261,9 @@ pub async fn download_all_pending(
         .await;
         if coord.enqueue(EnqueuedJob {
             video_id: id.clone(),
-            audio_format: None,
+            audio_format: audio_format.clone(),
+            video_quality: quality.clone(),
+            video_format: format.clone(),
         }) {
             enqueued += 1;
         }
@@ -300,6 +310,48 @@ pub async fn cancel_download(
         CancelOutcome::NotFound => "not_found",
     }
     .to_string())
+}
+
+/// Cancel every running and queued download. Running tasks are aborted (yt-dlp
+/// children die via kill_on_drop). Queued entries are removed. DB statuses are
+/// reset so the user can retry from the same UI ('failed' for aborted, 'pending'
+/// for queue-only entries).
+#[tauri::command]
+pub async fn cancel_all_downloads(
+    db: State<'_, DbState>,
+    progress: State<'_, ProgressState>,
+    coordinator: State<'_, CoordinatorState>,
+) -> Result<i64, String> {
+    let (aborted, removed) = coordinator.inner().cancel_all();
+
+    let total = aborted.len() + removed.len();
+    if total == 0 {
+        return Ok(0);
+    }
+
+    let db = db.inner().clone();
+    let aborted_clone = aborted.clone();
+    let removed_clone = removed.clone();
+    tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
+        for id in &aborted_clone {
+            db.update_video_status(id, "failed", None, None)?;
+        }
+        for id in &removed_clone {
+            db.update_video_status(id, "pending", None, None)?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(err)?
+    .map_err(err)?;
+
+    if let Ok(mut map) = progress.inner().lock() {
+        for id in &aborted {
+            map.remove(id);
+        }
+    }
+
+    Ok(total as i64)
 }
 
 #[tauri::command]

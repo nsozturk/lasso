@@ -125,7 +125,9 @@ fn resolve_job(db: &Db, job: &EnqueuedJob) -> anyhow::Result<ResolvedJob> {
     let channel = db
         .get_channel(&channel_id)?
         .context("channel for video not found")?;
+
     let kind = if let Some(fmt) = &job.audio_format {
+        // Explicit per-job audio override.
         let settings = db.all_settings()?;
         let q = settings
             .get("default_audio_quality")
@@ -135,7 +137,14 @@ fn resolve_job(db: &Db, job: &EnqueuedJob) -> anyhow::Result<ResolvedJob> {
             audio_format: fmt.clone(),
             audio_quality: q,
         }
+    } else if job.video_quality.is_some() || job.video_format.is_some() {
+        // Explicit per-job video override (from Download all sheet).
+        ResolvedKind::Video {
+            quality: job.video_quality.clone().unwrap_or(channel.quality_pref),
+            format: job.video_format.clone().unwrap_or(channel.format_pref),
+        }
     } else if channel.mode == "audio" {
+        // Channel default audio mode.
         let settings = db.all_settings()?;
         let fmt = settings
             .get("default_audio_format")
@@ -150,6 +159,7 @@ fn resolve_job(db: &Db, job: &EnqueuedJob) -> anyhow::Result<ResolvedJob> {
             audio_quality: q,
         }
     } else {
+        // Channel default video mode.
         ResolvedKind::Video {
             quality: channel.quality_pref,
             format: channel.format_pref,
@@ -382,6 +392,7 @@ pub fn run() {
             commands::download_video,
             commands::download_all_pending,
             commands::cancel_download,
+            commands::cancel_all_downloads,
             commands::get_active_downloads,
             commands::get_settings,
             commands::update_settings,

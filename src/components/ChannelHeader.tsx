@@ -1,5 +1,5 @@
 import type { Channel } from "../types";
-import { DownloadIcon, SyncIcon } from "../icons";
+import { CloseIcon, DownloadIcon, SyncIcon } from "../icons";
 
 type Props = {
   channel: Channel;
@@ -9,6 +9,8 @@ type Props = {
   onDownloadAll: () => void;
   pendingCount: number;
   downloadingAll?: boolean;
+  onStopAll: () => void;
+  inFlightCount: number;
 };
 
 export function ChannelHeader({
@@ -19,6 +21,8 @@ export function ChannelHeader({
   onDownloadAll,
   pendingCount,
   downloadingAll,
+  onStopAll,
+  inFlightCount,
 }: Props) {
   return (
     <>
@@ -81,6 +85,16 @@ export function ChannelHeader({
                 ? `Download all (${pendingCount})`
                 : "Download all"}
           </button>
+          {inFlightCount > 0 ? (
+            <button
+              className="btn-secondary stop-all"
+              onClick={onStopAll}
+              title="Cancel every running and queued download"
+            >
+              <CloseIcon />
+              Stop all ({inFlightCount})
+            </button>
+          ) : null}
         </div>
       </article>
 

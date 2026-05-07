@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "./Toast";
 
 type Props = {
   open: boolean;
@@ -11,6 +12,7 @@ type GrabMode = "now-on" | "last-n" | "full";
 type ChannelMode = "video" | "audio";
 
 export function AddChannelSheet({ open, onClose, onAdded }: Props) {
+  const { toast } = useToast();
   const [url, setUrl] = useState("");
   const [grabMode, setGrabMode] = useState<GrabMode>("now-on");
   const [lastN, setLastN] = useState<number>(25);
@@ -66,10 +68,12 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
         mode,
       );
       onAdded(channel.id);
+      toast(`Added “${channel.name}”`, "success");
       reset();
       onClose();
     } catch (e) {
       setError(String(e));
+      toast("Couldn't add channel", "error");
     } finally {
       setSubmitting(false);
     }

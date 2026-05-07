@@ -8,6 +8,8 @@ use tokio::task::JoinHandle;
 pub struct EnqueuedJob {
     pub video_id: String,
     pub audio_format: Option<String>,
+    pub video_quality: Option<String>,
+    pub video_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +52,19 @@ impl DownloadCoordinator {
     pub fn register_handle(&self, video_id: &str, handle: JoinHandle<()>) {
         let mut state = self.inner.lock().unwrap();
         state.handles.insert(video_id.to_string(), handle);
+    }
+
+    /// Cancel every running and queued job. Returns (running_aborted, queued_removed).
+    pub fn cancel_all(&self) -> (Vec<String>, Vec<String>) {
+        let mut state = self.inner.lock().unwrap();
+        let aborted: Vec<String> = state.handles.keys().cloned().collect();
+        for (_, h) in state.handles.drain() {
+            h.abort();
+        }
+        state.in_flight.clear();
+        let removed: Vec<String> = state.pending.drain(..).map(|j| j.video_id).collect();
+        self.notify.notify_one();
+        (aborted, removed)
     }
 
     /// Cancel a job. If running → abort the task (kill_on_drop SIGKILLs yt-dlp).

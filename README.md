@@ -1,5 +1,12 @@
 # Lasso
 
+[![License: MIT](https://img.shields.io/github/license/nsozturk/lasso?color=blue)](./LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/nsozturk/lasso)](https://github.com/nsozturk/lasso/commits/main)
+[![Top language](https://img.shields.io/github/languages/top/nsozturk/lasso)](https://github.com/nsozturk/lasso)
+[![Code size](https://img.shields.io/github/languages/code-size/nsozturk/lasso)](https://github.com/nsozturk/lasso)
+[![Open issues](https://img.shields.io/github/issues/nsozturk/lasso)](https://github.com/nsozturk/lasso/issues)
+[![Stars](https://img.shields.io/github/stars/nsozturk/lasso?style=social)](https://github.com/nsozturk/lasso/stargazers)
+
 > Subscribe to a YouTube channel — Lasso archives every video to your disk.
 
 Lasso is a local-first desktop app that subscribes to YouTube channels and
@@ -23,10 +30,14 @@ machine — channel add → live progress → file on disk. Not packaged into a
   Triggered by channel mode or per-video via the `⋮` menu on each video card.
 - **Audio Settings sheet** (♪ icon in toolbar) — default audio format and
   bitrate / quality.
-- **"Download all"** button on the channel header — queues every pending or
-  failed video. The background worker honours the `concurrent_downloads`
-  setting (default 1) and runs jobs N-at-a-time, keeping the rest in a
-  visible "Queued" state.
+- **"Download all"** button on the channel header — opens a sheet that asks
+  whether to save as Video (with quality + container choice — MP4 / WebM /
+  MKV) or Audio (any of MP3 / M4A / FLAC / OPUS / WAV / OGG / AAC / ALAC),
+  then queues every pending or failed video with that recipe. The background
+  worker honours the `concurrent_downloads` setting (default 1) and runs
+  jobs N-at-a-time, keeping the rest in a visible "Queued" state.
+- **"Stop all"** button when downloads are in flight — aborts every running
+  task and clears the queue.
 - **Cancel** button (× next to the chip) on running or queued downloads —
   aborts yt-dlp and resets the video so it can be retried.
 - "Sync now" button refreshes a channel's recent uploads.
@@ -95,6 +106,28 @@ have a legitimate reason to preserve. Distributing copyrighted material
 without permission is illegal. The user assumes all responsibility. The
 maintainers are aware this puts the project at DMCA risk and are okay with
 that.
+
+## Credits
+
+Lasso is a thin shell around tools written by other people. Without these,
+the project simply could not exist:
+
+- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** ([@yt-dlp](https://github.com/yt-dlp))
+  — the YouTube extraction engine. Unlicense / public-domain dedication.
+  Lasso uses it for channel metadata, video fetching, and audio extraction.
+- **[FFmpeg](https://ffmpeg.org/)** ([@FFmpeg](https://github.com/FFmpeg))
+  — the muxing, container conversion, and audio re-encoding workhorse that
+  yt-dlp delegates to.
+- **[Tauri](https://tauri.app)** ([@tauri-apps](https://github.com/tauri-apps))
+  — the desktop shell (Rust + system WebView).
+- **[React](https://react.dev)** ([@facebook](https://github.com/facebook))
+  — the UI runtime.
+- **[Vite](https://vitejs.dev)** ([@vitejs](https://github.com/vitejs)) and
+  **[rusqlite](https://github.com/rusqlite/rusqlite)** ([@rusqlite](https://github.com/rusqlite))
+  for build tooling and SQLite bindings.
+
+If you maintain one of the above and would like a different attribution
+form, open an issue.
 
 ## License
 

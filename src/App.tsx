@@ -8,6 +8,8 @@ import { ActivityDrawer } from "./components/ActivityDrawer";
 import { AddChannelSheet } from "./components/AddChannelSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { AudioSettingsSheet } from "./components/AudioSettingsSheet";
+import { DownloadAllSheet } from "./components/DownloadAllSheet";
+import { useToast } from "./components/Toast";
 import { api } from "./api";
 import { decorateChannel, decorateVideo } from "./format";
 import type { Channel, DownloadProgress, Video } from "./types";
@@ -18,6 +20,7 @@ const VIDEO_POLL_MS = 2500;
 const PROGRESS_POLL_MS = 1000;
 
 export default function App() {
+  const { toast } = useToast();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [videos, setVideos] = useState<Video[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
@@ -25,6 +28,7 @@ export default function App() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
+  const [downloadAllSheetOpen, setDownloadAllSheetOpen] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<Record<string, DownloadProgress>>({});
   const [syncingChannelIds, setSyncingChannelIds] = useState<Set<string>>(new Set());
@@ -169,23 +173,52 @@ export default function App() {
     [channels]
   );
 
-  const handleDownloadAll = useCallback(async () => {
-    if (!activeChannelId) return;
-    if (bulkDownloadingChannels.has(activeChannelId)) return;
-    setBulkDownloadingChannels((s) => new Set(s).add(activeChannelId));
+  const handleStopAll = useCallback(async () => {
     try {
-      await api.downloadAllPending(activeChannelId);
-      await refreshVideos(activeChannelId);
+      const n = await api.cancelAllDownloads();
+      if (activeChannelId) refreshVideos(activeChannelId);
+      if (n > 0) toast(`Stopped ${n} download${n > 1 ? "s" : ""}`, "success");
     } catch (e) {
-      console.error("download_all_pending failed", e);
-    } finally {
-      setBulkDownloadingChannels((s) => {
-        const next = new Set(s);
-        next.delete(activeChannelId);
-        return next;
-      });
+      console.error("cancel_all_downloads failed", e);
+      toast("Couldn't stop downloads", "error");
     }
-  }, [activeChannelId, bulkDownloadingChannels, refreshVideos]);
+  }, [activeChannelId, refreshVideos, toast]);
+
+  const handleOpenDownloadAll = useCallback(() => {
+    if (!activeChannelId) return;
+    setDownloadAllSheetOpen(true);
+  }, [activeChannelId]);
+
+  const handleDownloadAllConfirm = useCallback(
+    async (opts: {
+      audioFormat?: string;
+      quality?: string;
+      format?: string;
+    }) => {
+      if (!activeChannelId) return;
+      setBulkDownloadingChannels((s) => new Set(s).add(activeChannelId));
+      try {
+        const n = await api.downloadAllPending(activeChannelId, opts);
+        await refreshVideos(activeChannelId);
+        toast(
+          n > 0
+            ? `Queued ${n} download${n > 1 ? "s" : ""}`
+            : "Nothing to queue",
+          n > 0 ? "success" : "info",
+        );
+      } catch (e) {
+        console.error("download_all_pending failed", e);
+        toast("Couldn't queue downloads", "error");
+      } finally {
+        setBulkDownloadingChannels((s) => {
+          const next = new Set(s);
+          next.delete(activeChannelId);
+          return next;
+        });
+      }
+    },
+    [activeChannelId, refreshVideos, toast],
+  );
 
   const handleSync = useCallback(async () => {
     if (!activeChannel) return;
@@ -249,6 +282,14 @@ export default function App() {
     [videos]
   );
 
+  const inFlightCount = useMemo(
+    () =>
+      videos.filter(
+        (v) => v.status === "downloading" || v.status === "queued"
+      ).length,
+    [videos]
+  );
+
   return (
     <div className="app">
       <Sidebar
@@ -276,9 +317,11 @@ export default function App() {
                 onToggleAuto={() => handleToggleAuto(activeChannel.id)}
                 onSync={handleSync}
                 syncing={isActiveSyncing}
-                onDownloadAll={handleDownloadAll}
+                onDownloadAll={handleOpenDownloadAll}
                 pendingCount={pendingOrFailedCount}
                 downloadingAll={isActiveBulkDownloading}
+                onStopAll={handleStopAll}
+                inFlightCount={inFlightCount}
               />
               <FilterBar
                 filter={filter}
@@ -337,6 +380,13 @@ export default function App() {
       <AudioSettingsSheet
         open={audioSettingsOpen}
         onClose={() => setAudioSettingsOpen(false)}
+      />
+      <DownloadAllSheet
+        open={downloadAllSheetOpen}
+        channelName={activeChannel?.name ?? ""}
+        pendingCount={pendingOrFailedCount}
+        onClose={() => setDownloadAllSheetOpen(false)}
+        onConfirm={handleDownloadAllConfirm}
       />
     </div>
   );

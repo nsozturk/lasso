@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "./Toast";
 import type { Settings } from "../types";
 
 type Props = {
@@ -19,6 +20,7 @@ const DEFAULTS: Settings = {
 };
 
 export function SettingsSheet({ open, onClose }: Props) {
+  const { toast } = useToast();
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,9 +56,11 @@ export function SettingsSheet({ open, onClose }: Props) {
     setError(null);
     try {
       await api.updateSettings(settings);
+      toast("Settings saved", "success");
       onClose();
     } catch (e) {
       setError(String(e));
+      toast("Couldn't save settings", "error");
     } finally {
       setSaving(false);
     }

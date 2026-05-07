@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useToast } from "./Toast";
 import type { Settings } from "../types";
 
 type Props = {
@@ -30,6 +31,7 @@ const AUDIO_QUALITIES = [
 ];
 
 export function AudioSettingsSheet({ open, onClose }: Props) {
+  const { toast } = useToast();
   const [format, setFormat] = useState("mp3");
   const [quality, setQuality] = useState("0");
   const [loading, setLoading] = useState(false);
@@ -68,9 +70,11 @@ export function AudioSettingsSheet({ open, onClose }: Props) {
         default_audio_quality: quality,
       };
       await api.updateSettings(patch);
+      toast("Audio settings saved", "success");
       onClose();
     } catch (e) {
       setError(String(e));
+      toast("Couldn't save audio settings", "error");
     } finally {
       setSaving(false);
     }
