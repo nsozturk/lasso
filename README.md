@@ -46,6 +46,9 @@ machine — channel add → live progress → file on disk. Not packaged into a
 - **Cancel** button (× next to the chip) on running or queued downloads —
   aborts yt-dlp and resets the video so it can be retried.
 - "Sync now" button refreshes a channel's recent uploads.
+- **Background auto-sync** — every channel marked Auto-archive is re-checked
+  every N minutes (configurable in Settings, default 60). New uploads land in
+  the DB and the UI picks them up on the next poll.
 - Search (live filter), filter pills (All / Saved / New), Skip Shorts toggle,
   minimum-duration filter.
 - Settings sheet: default save folder, default quality / format, default

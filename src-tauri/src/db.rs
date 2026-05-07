@@ -96,6 +96,7 @@ impl Db {
             ("concurrent_downloads", "1"),
             ("default_audio_format", "mp3"),
             ("default_audio_quality", "0"),
+            ("auto_sync_minutes", "60"),
         ];
         for (k, v) in defaults {
             conn.execute(

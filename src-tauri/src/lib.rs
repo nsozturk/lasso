@@ -378,6 +378,70 @@ pub fn run() {
                 });
             }
 
+            // Background auto-sync scheduler. Reads `auto_sync_minutes` setting on
+            // each cycle so a settings change takes effect on the next pass.
+            // Runs sync_channel logic (fetch + upsert) for every auto_archive=true
+            // channel. Skips silently on any error so one failure doesn't stop the
+            // whole loop.
+            {
+                let db_for_sched = db.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Initial idle delay so the first run doesn't fight first-launch
+                    // seeding.
+                    tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+                    loop {
+                        let interval_min: u64 = db_for_sched
+                            .all_settings()
+                            .ok()
+                            .and_then(|s| s.get("auto_sync_minutes").cloned())
+                            .and_then(|s| s.parse().ok())
+                            .unwrap_or(60);
+                        let interval_secs = interval_min.max(5) * 60;
+
+                        let channels = match db_for_sched.list_channels() {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("[auto-sync] list_channels failed: {}", e);
+                                tokio::time::sleep(std::time::Duration::from_secs(interval_secs))
+                                    .await;
+                                continue;
+                            }
+                        };
+
+                        for ch in channels.into_iter().filter(|c| c.auto_archive) {
+                            let res =
+                                ytdlp::fetch_channel_with_videos(&ch.url, 25).await;
+                            match res {
+                                Ok((_, videos)) => {
+                                    let db_inner = db_for_sched.clone();
+                                    let id = ch.id.clone();
+                                    let _ = tauri::async_runtime::spawn_blocking(
+                                        move || -> anyhow::Result<()> {
+                                            let n = db_inner.upsert_videos(&videos)?;
+                                            db_inner.set_last_synced(&id)?;
+                                            if n > 0 {
+                                                eprintln!(
+                                                    "[auto-sync] {} → {} new",
+                                                    id, n
+                                                );
+                                            }
+                                            Ok(())
+                                        },
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    eprintln!("[auto-sync] {} failed: {}", ch.id, e);
+                                }
+                            }
+                        }
+
+                        tokio::time::sleep(std::time::Duration::from_secs(interval_secs))
+                            .await;
+                    }
+                });
+            }
+
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 seed_default_channel(db, app_handle).await;

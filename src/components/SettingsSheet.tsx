@@ -17,6 +17,7 @@ const DEFAULTS: Settings = {
   default_backlog: "25",
   skip_shorts_default: "1",
   concurrent_downloads: "1",
+  auto_sync_minutes: "60",
 };
 
 export function SettingsSheet({ open, onClose }: Props) {
@@ -135,6 +136,25 @@ export function SettingsSheet({ open, onClose }: Props) {
                 <option value="1">1</option>
                 <option value="2">2</option>
                 <option value="3">3</option>
+              </select>
+
+              <div className="field-label">
+                Auto-sync interval{" "}
+                <span style={{ color: "var(--text-tertiary)", fontWeight: 400 }}>
+                  (minutes — checks auto-archive channels for new uploads)
+                </span>
+              </div>
+              <select
+                className="select"
+                value={settings.auto_sync_minutes}
+                onChange={(e) => patch("auto_sync_minutes", e.target.value)}
+              >
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="60">60 (default)</option>
+                <option value="180">180</option>
+                <option value="360">360</option>
+                <option value="1440">1440 (daily)</option>
               </select>
 
               <div className="inline-controls" style={{ marginTop: 14 }}>
