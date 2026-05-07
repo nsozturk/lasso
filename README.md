@@ -27,6 +27,14 @@ machine — channel add → live progress → file on disk. Not packaged into a
   background** while the UI shows skeleton placeholders that get replaced as
   videos arrive. Big-catalog channels (NCS, GMM, etc.) become usable
   immediately instead of blocking for 30+ seconds.
+- **Bulk add** — paste multiple URLs in the sheet (`+ Add another channel`)
+  and start them all in parallel. Already-imported channels are caught both
+  client-side and on the backend (by `channel_id`).
+- **Sync uses the same streaming path** — Sync now returns instantly,
+  fetched videos appear with the skeleton system, and `INSERT OR IGNORE`
+  silently dedupes existing rows.
+- **Remove a channel** — hover over the channel in the sidebar and click ×.
+  Confirms before removal; downloaded files on disk stay put.
 - One-click download with **live percentage + progress bar** per video card.
 - Per-channel quality preference: 1080p / 720p / Best, MP4 / WebM / MKV.
 - **Per-channel mode** — `video` or `audio`. Music channels in audio mode

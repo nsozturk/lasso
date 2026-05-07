@@ -287,6 +287,23 @@ impl Db {
         Ok(n)
     }
 
+    /// Delete a channel and all its videos. Returns the deleted channel's
+    /// `save_path` (if any) so the caller can optionally remove its folder
+    /// from disk.
+    pub fn delete_channel(&self, channel_id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let save_path: Option<String> = conn
+            .query_row(
+                "SELECT save_path FROM channels WHERE id = ?1",
+                params![channel_id],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        // FK ON DELETE CASCADE handles videos.
+        conn.execute("DELETE FROM channels WHERE id = ?1", params![channel_id])?;
+        Ok(save_path)
+    }
+
     pub fn set_auto_archive(&self, channel_id: &str, on: bool) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

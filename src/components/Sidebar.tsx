@@ -4,6 +4,7 @@ import {
   GridIcon,
   ClockSmallIcon,
   DownloadsBoxIcon,
+  CloseIcon,
 } from "../icons";
 
 type Props = {
@@ -12,6 +13,7 @@ type Props = {
   onSelectChannel: (id: string) => void;
   onToggleAuto: (id: string) => void;
   onAddChannel: () => void;
+  onDeleteChannel: (id: string) => void;
 };
 
 export function Sidebar({
@@ -20,6 +22,7 @@ export function Sidebar({
   onSelectChannel,
   onToggleAuto,
   onAddChannel,
+  onDeleteChannel,
 }: Props) {
   return (
     <aside className="sidebar">
@@ -68,6 +71,17 @@ export function Sidebar({
               <span className="name">{c.name}</span>
               {c.unread ? <span className="badge unread">{c.unread}</span> : null}
               {c.syncing ? <span className="syncing-dot" title="Syncing" /> : null}
+              <button
+                className="channel-delete-btn"
+                title="Remove channel"
+                aria-label="Remove channel"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteChannel(c.id);
+                }}
+              >
+                <CloseIcon />
+              </button>
               <span
                 className={`auto${c.autoArchive ? " on" : ""}`}
                 title={c.autoArchive ? "Auto-archive on" : "Auto-archive off"}

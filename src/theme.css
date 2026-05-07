@@ -875,6 +875,59 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
   cursor: not-allowed;
 }
 
+/* "+ Add another channel" link inside AddChannelSheet */
+.add-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 0;
+  margin: 2px 0 14px;
+  font-family: inherit;
+}
+.add-row-btn:hover {
+  text-decoration: underline;
+}
+.add-row-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Hover-revealed delete button on each sidebar channel row */
+.channel-item {
+  position: relative;
+}
+.channel-delete-btn {
+  background: transparent;
+  border: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 100ms, background 100ms, color 100ms;
+  margin-right: 4px;
+}
+.channel-item:hover .channel-delete-btn {
+  opacity: 1;
+}
+.channel-delete-btn:hover {
+  background: rgba(255, 59, 48, 0.14);
+  color: var(--danger);
+}
+.channel-delete-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
 /* Skeleton placeholder cards while videos stream in from yt-dlp */
 .skeleton-card {
   pointer-events: none;

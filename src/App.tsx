@@ -300,6 +300,32 @@ export default function App() {
     [refreshChannels]
   );
 
+  const handleDeleteChannel = useCallback(
+    async (id: string) => {
+      const ch = channels.find((c) => c.id === id);
+      const name = ch?.name ?? "this channel";
+      if (
+        !window.confirm(
+          `Remove “${name}” from your library?\n\nDownloaded files on disk are kept.`,
+        )
+      ) {
+        return;
+      }
+      try {
+        await api.deleteChannel(id, false);
+        if (activeChannelId === id) {
+          setActiveChannelId(null);
+        }
+        await refreshChannels();
+        toast(`Removed “${name}”`, "success");
+      } catch (e) {
+        console.error("delete_channel failed", e);
+        toast("Couldn't remove channel", "error");
+      }
+    },
+    [channels, activeChannelId, refreshChannels, toast]
+  );
+
   // Derived: filtered video list.
   const displayedVideos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -350,6 +376,7 @@ export default function App() {
         onSelectChannel={setActiveChannelId}
         onToggleAuto={handleToggleAuto}
         onAddChannel={() => setSheetOpen(true)}
+        onDeleteChannel={handleDeleteChannel}
       />
 
       <main className="content">
@@ -440,6 +467,7 @@ export default function App() {
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         onAdded={handleChannelAdded}
+        existingUrls={channels.map((c) => c.url)}
       />
       <SettingsSheet
         open={settingsOpen}

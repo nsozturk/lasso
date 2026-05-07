@@ -456,6 +456,7 @@ pub fn run() {
             commands::add_channel,
             commands::sync_channel,
             commands::set_auto_archive,
+            commands::delete_channel,
             commands::download_video,
             commands::download_all_pending,
             commands::cancel_download,

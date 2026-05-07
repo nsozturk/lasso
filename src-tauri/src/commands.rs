@@ -99,6 +99,21 @@ pub async fn add_channel(
         .await
         .map_err(err)?;
 
+    // Duplicate guard. yt-dlp gave us preview.id; if it already exists we bail
+    // out with a clear error rather than silently re-syncing.
+    {
+        let db_check = db.inner().clone();
+        let id_check = preview.id.clone();
+        if let Ok(Some(existing)) =
+            tauri::async_runtime::spawn_blocking(move || db_check.get_channel(&id_check)).await.map_err(err)?
+        {
+            return Err(format!(
+                "“{}” is already in your library",
+                existing.name
+            ));
+        }
+    }
+
     let base_dir = settings
         .get("default_save_dir")
         .cloned()
@@ -225,9 +240,14 @@ pub async fn get_fetch_progress(
     Ok(map.values().cloned().collect())
 }
 
+/// Sync a channel: streams the latest N videos via `--dump-json` and upserts
+/// each as it arrives. Registers a FetchProgress entry so the UI can render
+/// skeleton placeholders for the gap. Returns immediately while the actual
+/// streaming runs in the background.
 #[tauri::command]
 pub async fn sync_channel(
     db: State<'_, DbState>,
+    fetch_state: State<'_, FetchState>,
     channel_id: String,
     max_videos: Option<u32>,
 ) -> Result<i64, String> {
@@ -240,22 +260,57 @@ pub async fn sync_channel(
         .map_err(err)?
         .ok_or_else(|| "channel not found".to_string())?;
 
-    let (_, videos) = ytdlp::fetch_channel_with_videos(&channel.url, max)
-        .await
-        .map_err(err)?;
+    let fs = fetch_state.inner().clone();
+    let already_have = channel.video_count;
+    {
+        let mut map = fs.lock().unwrap();
+        map.insert(
+            channel_id.clone(),
+            FetchProgress {
+                channel_id: channel_id.clone(),
+                fetched: already_have,
+                expected: already_have + max as i64,
+            },
+        );
+    }
 
-    let db_clone = db.inner().clone();
-    let id_clone = channel_id.clone();
-    let inserted = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<usize> {
-        let n = db_clone.upsert_videos(&videos)?;
-        db_clone.set_last_synced(&id_clone)?;
-        Ok(n)
-    })
-    .await
-    .map_err(err)?
-    .map_err(err)?;
+    let db_for_stream = db.inner().clone();
+    let cid_for_stream = channel_id.clone();
+    let url_for_stream = channel.url.clone();
+    tauri::async_runtime::spawn(async move {
+        let fs_for_cb = fs.clone();
+        let db_for_cb = db_for_stream.clone();
+        let cid_for_cb = cid_for_stream.clone();
 
-    Ok(inserted as i64)
+        let on_video = move |video: Video| {
+            let videos = vec![video];
+            if let Err(e) = db_for_cb.upsert_videos(&videos) {
+                eprintln!("[sync] upsert failed for {}: {}", cid_for_cb, e);
+                return;
+            }
+            let mut map = match fs_for_cb.lock() {
+                Ok(m) => m,
+                Err(_) => return,
+            };
+            if let Some(fp) = map.get_mut(&cid_for_cb) {
+                fp.fetched += 1;
+            }
+        };
+
+        let res =
+            ytdlp::stream_channel_videos(&url_for_stream, &cid_for_stream, 1, max, on_video).await;
+        if let Err(e) = res {
+            eprintln!("[sync] {} failed: {}", cid_for_stream, e);
+        }
+        // Mark last-synced regardless — partial sync still beats no sync.
+        let _ = db_for_stream.set_last_synced(&cid_for_stream);
+
+        if let Ok(mut map) = fs.lock() {
+            map.remove(&cid_for_stream);
+        }
+    });
+
+    Ok(0)
 }
 
 /// Enqueue a single video for download. Returns immediately. The actual yt-dlp run
@@ -466,6 +521,35 @@ pub async fn update_settings(
         .await
         .map_err(err)?
         .map_err(err)
+}
+
+/// Remove a channel from the library. By default the saved files on disk are
+/// left alone — set `delete_files=true` to also remove the channel's
+/// `save_path` folder recursively.
+#[tauri::command]
+pub async fn delete_channel(
+    db: State<'_, DbState>,
+    channel_id: String,
+    delete_files: Option<bool>,
+) -> Result<(), String> {
+    let db = db.inner().clone();
+    let id = channel_id.clone();
+    let save_path = tauri::async_runtime::spawn_blocking(move || db.delete_channel(&id))
+        .await
+        .map_err(err)?
+        .map_err(err)?;
+
+    if delete_files.unwrap_or(false) {
+        if let Some(path) = save_path {
+            let p = std::path::PathBuf::from(&path);
+            if p.exists() && p.is_dir() {
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    eprintln!("[delete] could not remove {}: {}", path, e);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]

@@ -1,19 +1,29 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useToast } from "./Toast";
+import { CloseIcon, PlusIcon } from "../icons";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onAdded: (channelId: string) => void;
+  existingUrls: string[];
 };
 
 type GrabMode = "now-on" | "last-n" | "full";
 type ChannelMode = "video" | "audio";
 
-export function AddChannelSheet({ open, onClose, onAdded }: Props) {
+function normalizeUrl(u: string): string {
+  return u
+    .trim()
+    .replace(/\/$/, "")
+    .replace(/\/(videos|shorts|streams|playlists|community|about|featured)$/i, "")
+    .toLowerCase();
+}
+
+export function AddChannelSheet({ open, onClose, onAdded, existingUrls }: Props) {
   const { toast } = useToast();
-  const [url, setUrl] = useState("");
+  const [urls, setUrls] = useState<string[]>([""]);
   const [grabMode, setGrabMode] = useState<GrabMode>("now-on");
   const [lastN, setLastN] = useState<number>(25);
   const [quality, setQuality] = useState<string>("1080p");
@@ -23,7 +33,6 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pre-populate from settings whenever sheet opens.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -46,38 +55,78 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
   }, [open]);
 
   function reset() {
-    setUrl("");
+    setUrls([""]);
     setGrabMode("now-on");
     setMode("video");
     setError(null);
   }
 
-  async function handleSubmit() {
-    if (!url.trim() || submitting) return;
+  function updateUrl(i: number, value: string) {
+    setUrls((prev) => prev.map((u, idx) => (idx === i ? value : u)));
+  }
+  function addRow() {
+    setUrls((prev) => [...prev, ""]);
+  }
+  function removeRow(i: number) {
+    setUrls((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  function handleSubmit() {
+    if (submitting) return;
+    const trimmed = urls.map((u) => u.trim()).filter((u) => u.length > 0);
+    if (trimmed.length === 0) {
+      setError("Paste at least one channel URL");
+      return;
+    }
+
+    // Local duplicate check (case-insensitive, handles trailing slash + tab
+    // suffix variants). Backend has its own check for race conditions.
+    const existingNorm = new Set(existingUrls.map(normalizeUrl));
+    const localDupes = trimmed.filter((u) => existingNorm.has(normalizeUrl(u)));
+    if (localDupes.length > 0) {
+      setError(
+        `Already in your library: ${localDupes
+          .map((u) => u.replace(/^https?:\/\//, ""))
+          .join(", ")}`,
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
-    try {
-      const initial =
-        grabMode === "now-on" ? 0 : grabMode === "last-n" ? lastN : 1000;
-      const channel = await api.addChannel(
-        url.trim(),
-        initial,
-        quality,
-        format,
-        skipShorts,
-        mode,
-      );
-      onAdded(channel.id);
-      toast(`Added “${channel.name}”`, "success");
-      reset();
-      onClose();
-    } catch (e) {
-      setError(String(e));
-      toast("Couldn't add channel", "error");
-    } finally {
-      setSubmitting(false);
+    const initial =
+      grabMode === "now-on" ? 0 : grabMode === "last-n" ? lastN : 1000;
+
+    // Fire-and-forget. Sheet closes immediately so the user can navigate.
+    // Each promise updates the UI when its metadata pass + first video land.
+    for (const url of trimmed) {
+      api
+        .addChannel(url, initial, quality, format, skipShorts, mode)
+        .then((channel) => {
+          onAdded(channel.id);
+          toast(`Added “${channel.name}”`, "success");
+        })
+        .catch((e) => {
+          const msg = String(e);
+          console.error("addChannel failed", msg);
+          toast(msg.replace(/^Error: /, ""), "error");
+        });
     }
+
+    if (trimmed.length > 1) {
+      toast(`Adding ${trimmed.length} channels…`, "info");
+    }
+    reset();
+    onClose();
+    setSubmitting(false);
   }
+
+  const realUrlCount = urls.filter((u) => u.trim().length > 0).length;
+  const submitLabel = (() => {
+    if (submitting) return "Starting…";
+    if (realUrlCount <= 1) return "Add channel";
+    return `Add channels (${realUrlCount})`;
+  })();
 
   return (
     <>
@@ -88,15 +137,44 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
       <div className={`sheet${open ? " open" : ""}`}>
         <h2>Add a channel to your library</h2>
         <div className="sheet-body">
-          <input
-            className="sheet-input"
-            type="text"
-            placeholder="https://youtube.com/@channelname"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            autoFocus={open}
+          {urls.map((u, i) => (
+            <div
+              key={i}
+              style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
+            >
+              <input
+                className="sheet-input"
+                style={{ flex: 1, marginBottom: 0 }}
+                type="text"
+                placeholder="https://youtube.com/@channelname"
+                value={u}
+                onChange={(e) => updateUrl(i, e.target.value)}
+                autoFocus={i === urls.length - 1 && open}
+                disabled={submitting}
+              />
+              {urls.length > 1 ? (
+                <button
+                  className="cancel-btn"
+                  type="button"
+                  title="Remove this URL"
+                  aria-label="Remove this URL"
+                  onClick={() => removeRow(i)}
+                  disabled={submitting}
+                >
+                  <CloseIcon />
+                </button>
+              ) : null}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="add-row-btn"
+            onClick={addRow}
             disabled={submitting}
-          />
+          >
+            <PlusIcon width={11} height={11} />
+            Add another channel
+          </button>
 
           <div className="field-label">What should we grab?</div>
           <div className="radio-group">
@@ -234,9 +312,9 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
           <button
             className="btn-primary confirm"
             onClick={handleSubmit}
-            disabled={submitting || !url.trim()}
+            disabled={submitting || realUrlCount === 0}
           >
-            {submitting ? "Fetching…" : "Add channel"}
+            {submitLabel}
           </button>
         </div>
       </div>

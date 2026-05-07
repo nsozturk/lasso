@@ -46,6 +46,9 @@ export const api = {
   setAutoArchive: (channelId: string, enabled: boolean) =>
     invoke<void>("set_auto_archive", { channelId, enabled }),
 
+  deleteChannel: (channelId: string, deleteFiles?: boolean) =>
+    invoke<void>("delete_channel", { channelId, deleteFiles }),
+
   downloadVideo: (videoId: string, audioFormat?: string) =>
     invoke<void>("download_video", { videoId, audioFormat }),
 
