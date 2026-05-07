@@ -59,8 +59,11 @@ machine — channel add → live progress → file on disk. Not packaged into a
 - Background scheduler (auto-sync every N minutes / hours).
 - Pause / resume buttons (cancel is shipped; pause needs `--continue`).
 - Tauri event channel for progress (replacing the 1-second polling).
-- Linux AppImage and Windows `.exe` builds (macOS `.dmg` works via
-  `pnpm tauri build`; binaries get bundled automatically).
+- macOS `.dmg`, Linux AppImage, Windows `.exe` builds — `scripts/fetch-binaries.sh`
+  knows how to fetch yt-dlp + ffmpeg for `aarch64-apple-darwin`,
+  `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+  and `x86_64-pc-windows-msvc`. After the script runs, `pnpm tauri build`
+  bundles them into the platform installer automatically.
 
 ## Run from source
 
