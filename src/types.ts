@@ -27,6 +27,12 @@ export type DownloadProgress = {
   etaSeconds: number | null;
 };
 
+export type FetchProgress = {
+  channelId: string;
+  fetched: number;
+  expected: number;
+};
+
 export type Settings = Record<string, string>;
 
 export type ApiVideo = {

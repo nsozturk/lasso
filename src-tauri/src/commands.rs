@@ -1,6 +1,6 @@
 use crate::coordinator::{CancelOutcome, DownloadCoordinator, EnqueuedJob};
 use crate::db::{now_seconds, Db};
-use crate::models::{Channel, ChannelPreview, DownloadProgress, Video};
+use crate::models::{Channel, ChannelPreview, DownloadProgress, FetchProgress, Video};
 use crate::ytdlp;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,6 +9,7 @@ use tauri::{Manager, State};
 
 pub type DbState = Arc<Db>;
 pub type ProgressState = Arc<Mutex<HashMap<String, DownloadProgress>>>;
+pub type FetchState = Arc<Mutex<HashMap<String, FetchProgress>>>;
 pub type CoordinatorState = DownloadCoordinator;
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -44,10 +45,16 @@ pub async fn fetch_channel_preview(url: String) -> Result<ChannelPreview, String
         .map_err(err)
 }
 
+/// Add a channel. Returns immediately with the channel's metadata + the first
+/// video (so the UI has something to show right away). The remaining
+/// `initial_video_count - 1` entries are streamed in the background and inserted
+/// into the DB one-by-one. Frontend can poll `list_videos` to see them appear,
+/// and `get_fetch_progress` to size skeleton placeholders.
 #[tauri::command]
 pub async fn add_channel(
     app: tauri::AppHandle,
     db: State<'_, DbState>,
+    fetch_state: State<'_, FetchState>,
     url: String,
     initial_video_count: Option<u32>,
     quality: Option<String>,
@@ -86,7 +93,9 @@ pub async fn add_channel(
             .unwrap_or(true)
     });
 
-    let (preview, videos) = ytdlp::fetch_channel_with_videos(&url, max)
+    // Quick metadata pass: channel info + the first video (or empty for max=0).
+    let bootstrap_count = if max == 0 { 0 } else { 1 };
+    let (preview, initial_videos) = ytdlp::fetch_channel_with_videos(&url, bootstrap_count)
         .await
         .map_err(err)?;
 
@@ -124,21 +133,80 @@ pub async fn add_channel(
         save_path,
         last_synced_at: Some(now_seconds()),
         created_at: now_seconds(),
-        video_count: videos.len() as i64,
+        video_count: initial_videos.len() as i64,
         storage_bytes: 0,
     };
 
     let db_clone = db.inner().clone();
     let channel_clone = channel.clone();
-    let videos_clone = videos.clone();
+    let initial_clone = initial_videos.clone();
     tauri::async_runtime::spawn_blocking(move || {
         db_clone.insert_channel(&channel_clone)?;
-        db_clone.upsert_videos(&videos_clone)?;
+        db_clone.upsert_videos(&initial_clone)?;
         anyhow::Ok(())
     })
     .await
     .map_err(err)?
     .map_err(err)?;
+
+    // If the user asked for more, stream the rest in the background. We start at
+    // `bootstrap_count + 1` to skip the video we already inserted.
+    if max > bootstrap_count {
+        let fetch_state_clone = fetch_state.inner().clone();
+        let db_for_stream = db.inner().clone();
+        let channel_id = channel.id.clone();
+        let channel_url = channel.url.clone();
+
+        // Seed fetch progress so UI can render skeletons.
+        {
+            let mut map = fetch_state_clone.lock().unwrap();
+            map.insert(
+                channel_id.clone(),
+                FetchProgress {
+                    channel_id: channel_id.clone(),
+                    fetched: initial_videos.len() as i64,
+                    expected: max as i64,
+                },
+            );
+        }
+
+        let start = bootstrap_count + 1;
+        let end = max;
+        tauri::async_runtime::spawn(async move {
+            let fetch_state_for_cb = fetch_state_clone.clone();
+            let db_for_cb = db_for_stream.clone();
+            let channel_id_for_cb = channel_id.clone();
+
+            let on_video = move |video: Video| {
+                let cid = channel_id_for_cb.clone();
+                let videos = vec![video];
+                // Insert immediately (sync, fast).
+                if let Err(e) = db_for_cb.upsert_videos(&videos) {
+                    eprintln!("[stream] upsert failed for {}: {}", cid, e);
+                    return;
+                }
+                let mut map = match fetch_state_for_cb.lock() {
+                    Ok(m) => m,
+                    Err(_) => return,
+                };
+                if let Some(fp) = map.get_mut(&cid) {
+                    fp.fetched += 1;
+                }
+            };
+
+            let result =
+                ytdlp::stream_channel_videos(&channel_url, &channel_id, start, end, on_video).await;
+            if let Err(e) = result {
+                eprintln!("[stream] failed for {}: {}", channel_id, e);
+            } else {
+                eprintln!("[stream] finished for {}", channel_id);
+            }
+            // Drop entry — UI will see fetched == expected (or just gone).
+            if let Ok(mut map) = fetch_state_clone.lock() {
+                map.remove(&channel_id);
+            }
+        });
+    }
 
     let db_clone = db.inner().clone();
     let id = channel.id.clone();
@@ -147,6 +215,14 @@ pub async fn add_channel(
         .map_err(err)?
         .map_err(err)?;
     result.ok_or_else(|| "channel not found after insert".to_string())
+}
+
+#[tauri::command]
+pub async fn get_fetch_progress(
+    fetch_state: State<'_, FetchState>,
+) -> Result<Vec<FetchProgress>, String> {
+    let map = fetch_state.inner().lock().map_err(err)?;
+    Ok(map.values().cloned().collect())
 }
 
 #[tauri::command]

@@ -22,8 +22,11 @@ machine — channel add → live progress → file on disk. Not packaged into a
 
 ## Features today
 
-- Add a channel by URL (`youtube.com/@name`) — Lasso fetches metadata and
-  the latest 25 videos.
+- Add a channel by URL (`youtube.com/@name`) — Lasso fetches channel
+  metadata + the first video instantly, then **streams the rest in the
+  background** while the UI shows skeleton placeholders that get replaced as
+  videos arrive. Big-catalog channels (NCS, GMM, etc.) become usable
+  immediately instead of blocking for 30+ seconds.
 - One-click download with **live percentage + progress bar** per video card.
 - Per-channel quality preference: 1080p / 720p / Best, MP4 / WebM / MKV.
 - **Per-channel mode** — `video` or `audio`. Music channels in audio mode

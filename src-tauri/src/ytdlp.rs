@@ -189,44 +189,134 @@ pub async fn fetch_channel_with_videos(
         Vec::new()
     } else {
         v["entries"]
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|e| {
-                    let id = e["id"].as_str()?.to_string();
-                    let title = e["title"].as_str().unwrap_or("(untitled)").to_string();
-                    let duration_seconds = e["duration"]
-                        .as_f64()
-                        .map(|d| d as i64)
-                        .or_else(|| e["duration"].as_i64());
-                    let thumbnail_url = e["thumbnails"]
-                        .as_array()
-                        .and_then(|arr| arr.last())
-                        .and_then(|t| t["url"].as_str())
-                        .map(|s| s.to_string());
-                    let is_short = duration_seconds.map(|s| s > 0 && s < 60).unwrap_or(false);
-                    Some(Video {
-                        id,
-                        channel_id: channel_id.clone(),
-                        title,
-                        duration_seconds,
-                        upload_date: None,
-                        view_count: e["view_count"].as_i64(),
-                        thumbnail_url,
-                        is_short,
-                        status: "pending".to_string(),
-                        file_path: None,
-                        file_size_bytes: None,
-                        created_at: now,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|e| parse_video_entry(e, &channel_id, now))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
 
     Ok((preview, videos))
+}
+
+/// Parse a yt-dlp entry JSON into a Video. Returns None if the entry is
+/// malformed (missing id) or otherwise unusable.
+fn parse_video_entry(e: &Value, channel_id: &str, now: i64) -> Option<Video> {
+    let id = e["id"].as_str()?.to_string();
+    let title = e["title"].as_str().unwrap_or("(untitled)").to_string();
+    let duration_seconds = e["duration"]
+        .as_f64()
+        .map(|d| d as i64)
+        .or_else(|| e["duration"].as_i64());
+    let thumbnail_url = e["thumbnails"]
+        .as_array()
+        .and_then(|arr| arr.last())
+        .and_then(|t| t["url"].as_str())
+        .map(|s| s.to_string());
+    let is_short = duration_seconds.map(|s| s > 0 && s < 60).unwrap_or(false);
+    Some(Video {
+        id,
+        channel_id: channel_id.to_string(),
+        title,
+        duration_seconds,
+        upload_date: None,
+        view_count: e["view_count"].as_i64(),
+        thumbnail_url,
+        is_short,
+        status: "pending".to_string(),
+        file_path: None,
+        file_size_bytes: None,
+        created_at: now,
+    })
+}
+
+/// Stream videos from a channel one at a time. Each yt-dlp output line is a
+/// single video JSON; we parse and call `on_video` for each. Use this for
+/// large catalogues where you want results to appear progressively.
+///
+/// `start_index` is 1-indexed. Pass `start_index=2` to skip the first video
+/// (which the metadata fetch already grabbed).
+pub async fn stream_channel_videos<F>(
+    channel_url: &str,
+    channel_id: &str,
+    start_index: u32,
+    end_index: u32,
+    on_video: F,
+) -> Result<()>
+where
+    F: Fn(Video) + Send + 'static,
+{
+    if end_index < start_index {
+        return Ok(());
+    }
+    let url = videos_url(channel_url);
+    let start = start_index.to_string();
+    let end = end_index.to_string();
+
+    let mut child = Command::new(ytdlp_path())
+        .args([
+            "--flat-playlist",
+            "--dump-json",
+            "--playlist-start",
+            &start,
+            "--playlist-end",
+            &end,
+            "--no-warnings",
+            &url,
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("failed to spawn yt-dlp for stream")?;
+
+    let stdout = child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow!("no stderr"))?;
+
+    let channel_id_owned = channel_id.to_string();
+    let stdout_handle = tokio::spawn(async move {
+        let now = crate::db::now_seconds();
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Ok(v) = serde_json::from_str::<Value>(line) {
+                if let Some(video) = parse_video_entry(&v, &channel_id_owned, now) {
+                    on_video(video);
+                }
+            }
+        }
+    });
+
+    let stderr_handle = tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        let mut buf = String::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            buf.push_str(&line);
+            buf.push('\n');
+        }
+        buf
+    });
+
+    let status = child.wait().await.context("yt-dlp wait failed")?;
+    let _ = stdout_handle.await;
+    let stderr_buf = stderr_handle.await.unwrap_or_default();
+
+    if !status.success() {
+        return Err(anyhow!(
+            "yt-dlp stream exited {}: {}",
+            status,
+            stderr_buf.trim()
+        ));
+    }
+    Ok(())
 }
 
 fn format_arg_for(quality: &str) -> &'static str {

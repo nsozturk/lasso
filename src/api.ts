@@ -3,6 +3,7 @@ import type {
   ApiChannel,
   ApiVideo,
   DownloadProgress,
+  FetchProgress,
   Settings,
 } from "./types";
 
@@ -66,6 +67,8 @@ export const api = {
 
   getActiveDownloads: () =>
     invoke<DownloadProgress[]>("get_active_downloads"),
+
+  getFetchProgress: () => invoke<FetchProgress[]>("get_fetch_progress"),
 
   getSettings: () => invoke<Settings>("get_settings"),
 

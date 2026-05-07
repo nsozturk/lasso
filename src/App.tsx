@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Toolbar } from "./components/Toolbar";
 import { ChannelHeader } from "./components/ChannelHeader";
 import { FilterBar, type Filter } from "./components/FilterBar";
 import { VideoCard } from "./components/VideoCard";
+import { SkeletonVideoCard } from "./components/SkeletonVideoCard";
 import { ActivityDrawer } from "./components/ActivityDrawer";
 import { AddChannelSheet } from "./components/AddChannelSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
@@ -12,7 +13,12 @@ import { DownloadAllSheet } from "./components/DownloadAllSheet";
 import { useToast } from "./components/Toast";
 import { api } from "./api";
 import { decorateChannel, decorateVideo } from "./format";
-import type { Channel, DownloadProgress, Video } from "./types";
+import type {
+  Channel,
+  DownloadProgress,
+  FetchProgress,
+  Video,
+} from "./types";
 
 const SEED_POLL_MS = 2000;
 const SEED_MAX_TRIES = 12;
@@ -31,6 +37,7 @@ export default function App() {
   const [downloadAllSheetOpen, setDownloadAllSheetOpen] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<Record<string, DownloadProgress>>({});
+  const [fetchMap, setFetchMap] = useState<Record<string, FetchProgress>>({});
   const [syncingChannelIds, setSyncingChannelIds] = useState<Set<string>>(new Set());
   const [bulkDownloadingChannels, setBulkDownloadingChannels] = useState<Set<string>>(new Set());
 
@@ -126,6 +133,51 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasInFlight]);
+
+  // Poll fetch progress (channel video streaming) every 1.5s. Always-on poll
+  // so a fetch kicked off in another channel doesn't go unnoticed.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const list = await api.getFetchProgress();
+        if (cancelled) return;
+        const next: Record<string, FetchProgress> = {};
+        for (const fp of list) next[fp.channelId] = fp;
+        setFetchMap(next);
+      } catch (e) {
+        console.error("get_fetch_progress failed", e);
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  // While the active channel is fetching, refresh its video list every 1.5s
+  // so newly-streamed videos appear without waiting for download polling.
+  const activeFetchProgress = activeChannelId ? fetchMap[activeChannelId] : undefined;
+  const isActiveFetching = !!activeFetchProgress &&
+    activeFetchProgress.fetched < activeFetchProgress.expected;
+  useEffect(() => {
+    if (!activeChannelId || !isActiveFetching) return;
+    const id = setInterval(() => refreshVideos(activeChannelId), 1500);
+    return () => clearInterval(id);
+  }, [activeChannelId, isActiveFetching, refreshVideos]);
+
+  // When a fetch finishes, refresh the channel list so videoCount updates.
+  const fetchKeysCount = Object.keys(fetchMap).length;
+  const prevFetchCountRef = useRef(0);
+  useEffect(() => {
+    if (prevFetchCountRef.current > fetchKeysCount) {
+      refreshChannels();
+      if (activeChannelId) refreshVideos(activeChannelId);
+    }
+    prevFetchCountRef.current = fetchKeysCount;
+  }, [fetchKeysCount, refreshChannels, refreshVideos, activeChannelId]);
 
   const handleDownload = useCallback(
     async (videoId: string, audioFormat?: string) => {
@@ -333,7 +385,7 @@ export default function App() {
                 newCount={newCount}
               />
               <ul className="video-list">
-                {displayedVideos.length === 0 ? (
+                {displayedVideos.length === 0 && !isActiveFetching ? (
                   <li
                     style={{
                       padding: "32px 12px",
@@ -346,15 +398,31 @@ export default function App() {
                       : "No videos match the current filters."}
                   </li>
                 ) : (
-                  displayedVideos.map((v) => (
-                    <VideoCard
-                      key={v.id}
-                      video={v}
-                      progress={progressMap[v.id]}
-                      onDownload={handleDownload}
-                      onCancel={handleCancel}
-                    />
-                  ))
+                  <>
+                    {displayedVideos.map((v) => (
+                      <VideoCard
+                        key={v.id}
+                        video={v}
+                        progress={progressMap[v.id]}
+                        onDownload={handleDownload}
+                        onCancel={handleCancel}
+                      />
+                    ))}
+                    {isActiveFetching && activeFetchProgress
+                      ? Array.from({
+                          length: Math.max(
+                            0,
+                            Math.min(
+                              activeFetchProgress.expected -
+                                activeFetchProgress.fetched,
+                              50,
+                            ),
+                          ),
+                        }).map((_, i) => (
+                          <SkeletonVideoCard key={`skeleton-${i}`} />
+                        ))
+                      : null}
+                  </>
                 )}
               </ul>
             </>

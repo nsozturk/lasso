@@ -4,10 +4,10 @@ mod db;
 mod models;
 mod ytdlp;
 
-use crate::commands::ProgressState;
+use crate::commands::{FetchState, ProgressState};
 use crate::coordinator::{DownloadCoordinator, EnqueuedJob};
 use crate::db::Db;
-use crate::models::DownloadProgress;
+use crate::models::{DownloadProgress, FetchProgress};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -346,6 +346,9 @@ pub fn run() {
             let progress: ProgressState = Arc::new(Mutex::new(HashMap::<String, DownloadProgress>::new()));
             app.manage(progress.clone());
 
+            let fetch_state: FetchState = Arc::new(Mutex::new(HashMap::<String, FetchProgress>::new()));
+            app.manage(fetch_state);
+
             let initial_capacity = db
                 .all_settings()
                 .ok()
@@ -394,6 +397,7 @@ pub fn run() {
             commands::cancel_download,
             commands::cancel_all_downloads,
             commands::get_active_downloads,
+            commands::get_fetch_progress,
             commands::get_settings,
             commands::update_settings,
         ])

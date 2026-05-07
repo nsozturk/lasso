@@ -23,6 +23,14 @@ pub struct Channel {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FetchProgress {
+    pub channel_id: String,
+    pub fetched: i64,
+    pub expected: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DownloadProgress {
     pub video_id: String,
     pub percent: f64,
