@@ -50,31 +50,38 @@ machine — channel add → live progress → file on disk. Not packaged into a
 
 ## Coming soon
 
-- Bundled `yt-dlp` sidecar (no PATH dependency).
 - Custom Lasso app icon (currently default Tauri icon).
 - Background scheduler (auto-sync every N minutes / hours).
 - Pause / resume buttons (cancel is shipped; pause needs `--continue`).
-- Toast UX for save / error feedback.
 - Tauri event channel for progress (replacing the 1-second polling).
-- macOS `.dmg`, Linux AppImage, Windows `.exe` releases.
+- Linux AppImage and Windows `.exe` builds (macOS `.dmg` works via
+  `pnpm tauri build`; binaries get bundled automatically).
 
 ## Run from source
 
 Requirements: macOS 13+, Node 20+, [pnpm](https://pnpm.io), Rust toolchain
-(`rustup`), and `yt-dlp` + `ffmpeg` on PATH.
+(`rustup`). `yt-dlp` and `ffmpeg` are **embedded** — fetched once into
+`src-tauri/binaries/` by a script and bundled into the `.app` by Tauri.
+You don't need them on PATH.
 
 ```sh
-brew install yt-dlp ffmpeg pnpm rustup-init
+brew install pnpm rustup-init           # if you don't have these
 rustup-init -y && source "$HOME/.cargo/env"
 
 git clone https://github.com/nsozturk/lasso.git
 cd lasso
 pnpm install
+./scripts/fetch-binaries.sh             # downloads yt-dlp + ffmpeg
 pnpm tauri dev
 ```
 
 First run seeds a default channel (`@azelofi`) so you have something to play
-with immediately. Files land in `~/Movies/Lasso/<Channel-Name>/`.
+with immediately. Try also: `https://www.youtube.com/@NoCopyrightSounds` —
+a busy music channel that's a great showcase for audio extraction
+(channel mode = audio + format = FLAC, then "Download all").
+
+Files land in `~/Movies/Lasso/<Channel-Name>/`. Channel names with spaces
+are sanitised to `-` to keep paths shell-safe.
 
 ## Stack
 

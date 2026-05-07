@@ -36,3 +36,7 @@ tmp/
 
 # yt-dlp cache during dev
 .yt-dlp-cache/
+
+# Bundled sidecar binaries — fetched per machine via scripts/fetch-binaries.sh.
+# Tracking 100+ MB of platform-specific binaries in git is a non-starter.
+src-tauri/binaries/

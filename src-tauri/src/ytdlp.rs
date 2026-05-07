@@ -3,8 +3,69 @@ use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+
+/// Resolve a bundled sidecar binary by name. Tauri 2 copies sidecars to:
+/// - dev: `target/<profile>/<name>-<target>`
+/// - bundled (.app): `<app>/Contents/Resources/_up_/binaries/<name>-<target>` and
+///   sometimes alongside the main exe.
+/// We probe both locations and fall back to the bin name on PATH.
+fn resolve_sidecar(name: &str) -> PathBuf {
+    let target = option_env!("TARGET").unwrap_or("");
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Same directory as the running exe (covers `cargo run` dev + bundled exe).
+            if !target.is_empty() {
+                candidates.push(dir.join(format!("{}-{}", name, target)));
+            }
+            candidates.push(dir.join(name));
+
+            // macOS .app/Contents/MacOS/<exe> → Resources sibling.
+            if let Some(contents) = dir.parent() {
+                candidates.push(contents.join("Resources").join(name));
+                if !target.is_empty() {
+                    candidates
+                        .push(contents.join("Resources").join(format!("{}-{}", name, target)));
+                }
+            }
+        }
+    }
+    // Dev fallback: src-tauri/binaries/<name>-<target> relative to cwd.
+    if !target.is_empty() {
+        candidates.push(PathBuf::from(format!("src-tauri/binaries/{}-{}", name, target)));
+    }
+
+    for c in &candidates {
+        if c.exists() {
+            return c.clone();
+        }
+    }
+
+    // Last resort: assume it's on PATH.
+    PathBuf::from(name)
+}
+
+fn ytdlp_path() -> &'static PathBuf {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let p = resolve_sidecar("yt-dlp");
+        eprintln!("[lasso] yt-dlp resolved to: {}", p.display());
+        p
+    })
+}
+
+fn ffmpeg_path() -> &'static PathBuf {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let p = resolve_sidecar("ffmpeg");
+        eprintln!("[lasso] ffmpeg resolved to: {}", p.display());
+        p
+    })
+}
 
 /// Canonicalize a user-provided channel URL to the /videos endpoint.
 fn videos_url(input: &str) -> String {
@@ -57,11 +118,11 @@ pub fn sanitize_dir_name(name: &str) -> String {
 }
 
 async fn run_ytdlp(args: &[&str]) -> Result<String> {
-    let output = Command::new("yt-dlp")
+    let output = Command::new(ytdlp_path())
         .args(args)
         .output()
         .await
-        .context("failed to spawn yt-dlp (is it on PATH?)")?;
+        .context("failed to spawn yt-dlp")?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(anyhow!("yt-dlp exited {}: {}", output.status, stderr));
@@ -70,12 +131,17 @@ async fn run_ytdlp(args: &[&str]) -> Result<String> {
 }
 
 /// Fetch channel metadata + a flat list of recent videos in one pass.
+/// `max_videos == 0` means "From now on" — fetch only channel metadata, return
+/// an empty videos list. yt-dlp rejects `--playlist-end 0`, so we fetch one
+/// video for the metadata pass and discard it.
 pub async fn fetch_channel_with_videos(
     channel_url: &str,
     max_videos: u32,
 ) -> Result<(ChannelPreview, Vec<Video>)> {
     let url = videos_url(channel_url);
-    let limit = max_videos.to_string();
+    let metadata_only = max_videos == 0;
+    let effective_max = if metadata_only { 1 } else { max_videos };
+    let limit = effective_max.to_string();
     let stdout = run_ytdlp(&[
         "--flat-playlist",
         "--dump-single-json",
@@ -119,7 +185,10 @@ pub async fn fetch_channel_with_videos(
     };
 
     let now = crate::db::now_seconds();
-    let videos: Vec<Video> = v["entries"]
+    let videos: Vec<Video> = if metadata_only {
+        Vec::new()
+    } else {
+        v["entries"]
         .as_array()
         .map(|entries| {
             entries
@@ -154,7 +223,8 @@ pub async fn fetch_channel_with_videos(
                 })
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+    };
 
     Ok((preview, videos))
 }
@@ -222,7 +292,7 @@ async fn run_ytdlp_with_progress<F>(
 where
     F: Fn(DownloadProgress) + Send + 'static,
 {
-    let mut child = Command::new("yt-dlp")
+    let mut child = Command::new(ytdlp_path())
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -292,12 +362,16 @@ where
 
     let f_arg = format_arg_for(quality);
     let merge_arg = merge_format_for(format);
+    let ffmpeg = ffmpeg_path();
+    let ffmpeg_str = ffmpeg.to_str().unwrap_or("ffmpeg");
 
     let args = [
         "-f",
         f_arg,
         "--merge-output-format",
         merge_arg,
+        "--ffmpeg-location",
+        ffmpeg_str,
         "-o",
         template_str,
         "--no-warnings",
@@ -357,6 +431,8 @@ where
         .ok_or_else(|| anyhow!("save path contains non-UTF8 characters"))?;
 
     let (yt_format, ext) = audio_format_args(audio_format);
+    let ffmpeg = ffmpeg_path();
+    let ffmpeg_str = ffmpeg.to_str().unwrap_or("ffmpeg");
 
     let args = [
         "-f",
@@ -366,6 +442,8 @@ where
         yt_format,
         "--audio-quality",
         audio_quality,
+        "--ffmpeg-location",
+        ffmpeg_str,
         "-o",
         template_str,
         "--no-warnings",
