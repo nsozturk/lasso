@@ -45,6 +45,13 @@ fail-silently when the column already exists).
 - No force-push to `main`
 - Risky or large refactors → open a PR first
 
+## Release policy
+
+- **Do not tag or cut a GitHub release unless the user explicitly asks for one.**
+  Commit and push to `main` freely; tagging (`git tag`, `git push origin <tag>`)
+  and `gh release create` only happen on direct user instruction such as
+  "tag v0.0.4" or "release this".
+
 ## Test before reporting done
 
 For UI changes, run `pnpm tauri dev` and exercise the change in the actual
