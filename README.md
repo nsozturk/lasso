@@ -9,6 +9,8 @@
 
 > Subscribe to a YouTube channel — Lasso archives every video to your disk.
 
+![Lasso main window](./docs/screenshots/lasso-main.png)
+
 Lasso is a local-first desktop app that subscribes to YouTube channels and
 auto-downloads new uploads as they appear. It targets the gap between
 server-tier tools (TubeArchivist, Pinchflat) that need Docker, and one-off
