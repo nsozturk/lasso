@@ -1,14 +1,25 @@
 import type { Channel } from "../types";
-import { SyncIcon } from "../icons";
+import { DownloadIcon, SyncIcon } from "../icons";
 
 type Props = {
   channel: Channel;
   onToggleAuto: () => void;
   onSync: () => void;
   syncing?: boolean;
+  onDownloadAll: () => void;
+  pendingCount: number;
+  downloadingAll?: boolean;
 };
 
-export function ChannelHeader({ channel, onToggleAuto, onSync, syncing }: Props) {
+export function ChannelHeader({
+  channel,
+  onToggleAuto,
+  onSync,
+  syncing,
+  onDownloadAll,
+  pendingCount,
+  downloadingAll,
+}: Props) {
   return (
     <>
       <article className="channel-header">
@@ -52,6 +63,23 @@ export function ChannelHeader({ channel, onToggleAuto, onSync, syncing }: Props)
           >
             <SyncIcon />
             {syncing ? "Syncing…" : "Sync now"}
+          </button>
+          <button
+            className="btn-primary"
+            onClick={onDownloadAll}
+            disabled={downloadingAll || pendingCount === 0}
+            title={
+              pendingCount === 0
+                ? "Nothing to download"
+                : `Queue ${pendingCount} pending or failed videos`
+            }
+          >
+            <DownloadIcon />
+            {downloadingAll
+              ? "Queuing…"
+              : pendingCount > 0
+                ? `Download all (${pendingCount})`
+                : "Download all"}
           </button>
         </div>
       </article>

@@ -1,7 +1,7 @@
+use crate::coordinator::{DownloadCoordinator, EnqueuedJob};
 use crate::db::{now_seconds, Db};
 use crate::models::{Channel, ChannelPreview, DownloadProgress, Video};
 use crate::ytdlp;
-use anyhow::Context;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -9,6 +9,7 @@ use tauri::{Manager, State};
 
 pub type DbState = Arc<Db>;
 pub type ProgressState = Arc<Mutex<HashMap<String, DownloadProgress>>>;
+pub type CoordinatorState = DownloadCoordinator;
 
 fn err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
@@ -181,200 +182,83 @@ pub async fn sync_channel(
     Ok(inserted as i64)
 }
 
-/// Fire-and-forget: marks the video as `downloading`, returns immediately,
-/// then runs yt-dlp in the background, streaming progress into the shared map,
-/// and updates final status to `downloaded`/`failed` on completion.
+/// Enqueue a single video for download. Returns immediately. The actual yt-dlp run
+/// happens in the background worker, respecting the `concurrent_downloads` setting.
 ///
 /// `audio_format` overrides the channel's mode — when set, the video is extracted
-/// as audio in the requested format (mp3 / m4a / flac / opus / wav / ogg / aac).
-/// When unset, the channel's `mode` field decides: `audio` → extract audio using the
-/// global `default_audio_format` setting; `video` → normal video download.
+/// as audio in the requested format. When unset, the channel's `mode` field decides
+/// (`audio` → extract audio using global defaults; `video` → normal video download).
 #[tauri::command]
 pub async fn download_video(
     db: State<'_, DbState>,
-    progress: State<'_, ProgressState>,
+    coordinator: State<'_, CoordinatorState>,
     video_id: String,
     audio_format: Option<String>,
 ) -> Result<(), String> {
-    let db: Arc<Db> = db.inner().clone();
-    let progress: ProgressState = progress.inner().clone();
-
-    #[derive(Clone)]
-    struct ResolvedJob {
-        save_path: String,
-        kind: JobKind,
-    }
-    #[derive(Clone)]
-    enum JobKind {
-        Video {
-            quality: String,
-            format: String,
-        },
-        Audio {
-            audio_format: String,
-            audio_quality: String,
-        },
-    }
-
-    let job: ResolvedJob = {
-        let db = db.clone();
-        let id = video_id.clone();
-        let override_audio = audio_format.clone();
-        tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<ResolvedJob> {
-            let channel_id = db
-                .get_video_channel(&id)?
-                .context("video not found in database")?;
-            let channel = db
-                .get_channel(&channel_id)?
-                .context("channel for video not found")?;
-
-            let kind = if let Some(fmt) = override_audio {
-                let settings = db.all_settings()?;
-                let q = settings
-                    .get("default_audio_quality")
-                    .cloned()
-                    .unwrap_or_else(|| "0".into());
-                JobKind::Audio {
-                    audio_format: fmt,
-                    audio_quality: q,
-                }
-            } else if channel.mode == "audio" {
-                let settings = db.all_settings()?;
-                let fmt = settings
-                    .get("default_audio_format")
-                    .cloned()
-                    .unwrap_or_else(|| "mp3".into());
-                let q = settings
-                    .get("default_audio_quality")
-                    .cloned()
-                    .unwrap_or_else(|| "0".into());
-                JobKind::Audio {
-                    audio_format: fmt,
-                    audio_quality: q,
-                }
-            } else {
-                JobKind::Video {
-                    quality: channel.quality_pref.clone(),
-                    format: channel.format_pref.clone(),
-                }
-            };
-
-            Ok(ResolvedJob {
-                save_path: channel.save_path,
-                kind,
-            })
-        })
-        .await
-        .map_err(err)?
-        .map_err(err)?
-    };
+    let db = db.inner().clone();
+    let coord = coordinator.inner().clone();
 
     {
         let db = db.clone();
         let id = video_id.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            db.update_video_status(&id, "downloading", None, None)
+            db.update_video_status(&id, "queued", None, None)
         })
         .await
         .map_err(err)?
         .map_err(err)?;
     }
 
-    // Seed an entry so the UI immediately shows 0%
-    {
-        let mut map = progress.lock().unwrap();
-        map.insert(
-            video_id.clone(),
-            DownloadProgress {
-                video_id: video_id.clone(),
-                percent: 0.0,
-                downloaded_bytes: 0,
-                total_bytes: 0,
-                speed_bps: None,
-                eta_seconds: None,
-            },
-        );
-    }
+    coord.enqueue(EnqueuedJob {
+        video_id,
+        audio_format,
+    });
+    Ok(())
+}
 
-    let progress_for_cb = progress.clone();
-    let video_id_for_cb = video_id.clone();
-    let on_progress = move |dp: DownloadProgress| {
-        if let Ok(mut map) = progress_for_cb.lock() {
-            map.insert(video_id_for_cb.clone(), dp);
-        }
+/// Enqueue every video in the channel whose status is `pending` or `failed`.
+/// Returns the number of newly-queued videos.
+#[tauri::command]
+pub async fn download_all_pending(
+    db: State<'_, DbState>,
+    coordinator: State<'_, CoordinatorState>,
+    channel_id: String,
+) -> Result<i64, String> {
+    let db = db.inner().clone();
+    let coord = coordinator.inner().clone();
+
+    let video_ids: Vec<String> = {
+        let db = db.clone();
+        let cid = channel_id.clone();
+        tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<Vec<String>> {
+            let videos = db.list_videos_for_channel(&cid)?;
+            Ok(videos
+                .into_iter()
+                .filter(|v| v.status == "pending" || v.status == "failed")
+                .map(|v| v.id)
+                .collect())
+        })
+        .await
+        .map_err(err)?
+        .map_err(err)?
     };
 
-    tauri::async_runtime::spawn(async move {
-        let save_dir = PathBuf::from(&job.save_path);
-        let download_result = match job.kind {
-            JobKind::Video { quality, format } => {
-                ytdlp::download_video(&save_dir, &video_id, &quality, &format, on_progress).await
-            }
-            JobKind::Audio {
-                audio_format,
-                audio_quality,
-            } => {
-                ytdlp::download_audio(
-                    &save_dir,
-                    &video_id,
-                    &audio_format,
-                    &audio_quality,
-                    on_progress,
-                )
-                .await
-            }
-        };
-
-        let (status, file_path, file_size) = match &download_result {
-            Ok((path, size)) => {
-                let p = path.to_string_lossy().to_string();
-                eprintln!("[download] {} → {} ({} bytes)", video_id, p, size);
-                ("downloaded", Some(p), Some(*size))
-            }
-            Err(e) => {
-                eprintln!("[download] failed for {}: {}", video_id, e);
-                ("failed", None, None)
-            }
-        };
-
-        // Update DB FIRST so the frontend video poll picks up the new status quickly.
-        let video_id_for_db = video_id.clone();
-        let db_for_update = db.clone();
-        let file_path_for_db = file_path.clone();
-        let _ = tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<()> {
-            db_for_update.update_video_status(
-                &video_id_for_db,
-                status,
-                file_path_for_db.as_deref(),
-                file_size,
-            )?;
-            Ok(())
+    let mut enqueued = 0i64;
+    for id in &video_ids {
+        let db_for_status = db.clone();
+        let id_clone = id.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            db_for_status.update_video_status(&id_clone, "queued", None, None)
         })
         .await;
-
-        // On success, pin progress entry at 100% so chip stays at "↓ 100%" until the
-        // video status poll catches up. Then drop it after a short delay.
-        if status == "downloaded" {
-            if let Ok(mut map) = progress.lock() {
-                if let Some(dp) = map.get_mut(&video_id) {
-                    dp.percent = 100.0;
-                    if let Some(size) = file_size {
-                        dp.downloaded_bytes = size;
-                        dp.total_bytes = size;
-                    }
-                    dp.speed_bps = None;
-                    dp.eta_seconds = Some(0);
-                }
-            }
+        if coord.enqueue(EnqueuedJob {
+            video_id: id.clone(),
+            audio_format: None,
+        }) {
+            enqueued += 1;
         }
-
-        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-        if let Ok(mut map) = progress.lock() {
-            map.remove(&video_id);
-        }
-    });
-
-    Ok(())
+    }
+    Ok(enqueued)
 }
 
 #[tauri::command]
@@ -397,9 +281,18 @@ pub async fn get_settings(db: State<'_, DbState>) -> Result<HashMap<String, Stri
 #[tauri::command]
 pub async fn update_settings(
     db: State<'_, DbState>,
+    coordinator: State<'_, CoordinatorState>,
     patch: HashMap<String, String>,
 ) -> Result<(), String> {
     let db = db.inner().clone();
+    let coord = coordinator.inner().clone();
+
+    if let Some(c) = patch.get("concurrent_downloads") {
+        if let Ok(n) = c.parse::<usize>() {
+            coord.set_capacity(n);
+        }
+    }
+
     tauri::async_runtime::spawn_blocking(move || db.update_settings(&patch))
         .await
         .map_err(err)?

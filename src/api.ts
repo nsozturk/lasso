@@ -48,6 +48,9 @@ export const api = {
   downloadVideo: (videoId: string, audioFormat?: string) =>
     invoke<void>("download_video", { videoId, audioFormat }),
 
+  downloadAllPending: (channelId: string) =>
+    invoke<number>("download_all_pending", { channelId }),
+
   getActiveDownloads: () =>
     invoke<DownloadProgress[]>("get_active_downloads"),
 

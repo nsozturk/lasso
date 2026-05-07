@@ -28,6 +28,7 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<Record<string, DownloadProgress>>({});
   const [syncingChannelIds, setSyncingChannelIds] = useState<Set<string>>(new Set());
+  const [bulkDownloadingChannels, setBulkDownloadingChannels] = useState<Set<string>>(new Set());
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
@@ -156,6 +157,24 @@ export default function App() {
     [channels]
   );
 
+  const handleDownloadAll = useCallback(async () => {
+    if (!activeChannelId) return;
+    if (bulkDownloadingChannels.has(activeChannelId)) return;
+    setBulkDownloadingChannels((s) => new Set(s).add(activeChannelId));
+    try {
+      await api.downloadAllPending(activeChannelId);
+      await refreshVideos(activeChannelId);
+    } catch (e) {
+      console.error("download_all_pending failed", e);
+    } finally {
+      setBulkDownloadingChannels((s) => {
+        const next = new Set(s);
+        next.delete(activeChannelId);
+        return next;
+      });
+    }
+  }, [activeChannelId, bulkDownloadingChannels, refreshVideos]);
+
   const handleSync = useCallback(async () => {
     if (!activeChannel) return;
     const id = activeChannel.id;
@@ -207,6 +226,17 @@ export default function App() {
     ? syncingChannelIds.has(activeChannel.id)
     : false;
 
+  const isActiveBulkDownloading = activeChannel
+    ? bulkDownloadingChannels.has(activeChannel.id)
+    : false;
+
+  const pendingOrFailedCount = useMemo(
+    () =>
+      videos.filter((v) => v.status === "pending" || v.status === "failed")
+        .length,
+    [videos]
+  );
+
   return (
     <div className="app">
       <Sidebar
@@ -234,6 +264,9 @@ export default function App() {
                 onToggleAuto={() => handleToggleAuto(activeChannel.id)}
                 onSync={handleSync}
                 syncing={isActiveSyncing}
+                onDownloadAll={handleDownloadAll}
+                pendingCount={pendingOrFailedCount}
+                downloadingAll={isActiveBulkDownloading}
               />
               <FilterBar
                 filter={filter}
