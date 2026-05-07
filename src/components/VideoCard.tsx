@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DownloadProgress, Video, VideoStatus } from "../types";
-import { CheckIcon, DownloadIcon, KebabIcon } from "../icons";
+import { CheckIcon, CloseIcon, DownloadIcon, KebabIcon } from "../icons";
 import { formatBytes, formatSpeed } from "../format";
 
 const AUDIO_FORMATS: { value: string; label: string }[] = [
@@ -52,13 +52,16 @@ type Props = {
   video: Video;
   progress?: DownloadProgress;
   onDownload?: (id: string, audioFormat?: string) => void;
+  onCancel?: (id: string) => void;
 };
 
-export function VideoCard({ video, progress, onDownload }: Props) {
+export function VideoCard({ video, progress, onDownload, onCancel }: Props) {
   const canDownload =
     onDownload && (video.status === "pending" || video.status === "failed");
 
   const isDownloading = video.status === "downloading";
+  const isCancellable =
+    onCancel && (video.status === "downloading" || video.status === "queued");
   const showProgress = isDownloading && progress;
 
   const percent = progress
@@ -114,22 +117,34 @@ export function VideoCard({ video, progress, onDownload }: Props) {
         </div>
       </div>
       <div className="video-status">
-        {canDownload ? (
-          <button
-            className="chip queued chip-button"
-            onClick={() => onDownload(video.id)}
-          >
-            <DownloadIcon />
-            Download
-          </button>
-        ) : showProgress ? (
-          <span className="chip queued">
-            <DownloadIcon />
-            {Math.round(percent)}%
-          </span>
-        ) : (
-          <StatusChip status={video.status} />
-        )}
+        <div className="status-row">
+          {canDownload ? (
+            <button
+              className="chip queued chip-button"
+              onClick={() => onDownload(video.id)}
+            >
+              <DownloadIcon />
+              Download
+            </button>
+          ) : showProgress ? (
+            <span className="chip queued">
+              <DownloadIcon />
+              {Math.round(percent)}%
+            </span>
+          ) : (
+            <StatusChip status={video.status} />
+          )}
+          {isCancellable ? (
+            <button
+              className="cancel-btn"
+              title="Cancel download"
+              aria-label="Cancel download"
+              onClick={() => onCancel?.(video.id)}
+            >
+              <CloseIcon />
+            </button>
+          ) : null}
+        </div>
         <span className="meta-line">
           {progressMeta ?? video.metaLine}
         </span>

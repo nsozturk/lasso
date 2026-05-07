@@ -226,6 +226,7 @@ where
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .context("failed to spawn yt-dlp for download")?;
 

@@ -356,9 +356,11 @@ pub fn run() {
                         let db_inner = db_for_worker.clone();
                         let progress_inner = progress_for_worker.clone();
                         let coord_inner = coord_for_worker.clone();
-                        tauri::async_runtime::spawn(async move {
+                        let video_id = job.video_id.clone();
+                        let handle = tokio::spawn(async move {
                             run_one_job(job, db_inner, progress_inner, coord_inner).await;
                         });
+                        coord_for_worker.register_handle(&video_id, handle);
                     }
                 });
             }
@@ -379,6 +381,7 @@ pub fn run() {
             commands::set_auto_archive,
             commands::download_video,
             commands::download_all_pending,
+            commands::cancel_download,
             commands::get_active_downloads,
             commands::get_settings,
             commands::update_settings,

@@ -1,7 +1,8 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
 pub struct EnqueuedJob {
@@ -9,10 +10,21 @@ pub struct EnqueuedJob {
     pub audio_format: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelOutcome {
+    /// Job was running; the task was aborted (yt-dlp child dies via kill_on_drop).
+    AbortedRunning,
+    /// Job was in the queue; removed without ever starting.
+    RemovedFromQueue,
+    /// Nothing to cancel — id was neither pending nor in-flight.
+    NotFound,
+}
+
 struct CoordState {
     pending: VecDeque<EnqueuedJob>,
     in_flight: HashSet<String>,
     capacity: usize,
+    handles: HashMap<String, JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -28,9 +40,35 @@ impl DownloadCoordinator {
                 pending: VecDeque::new(),
                 in_flight: HashSet::new(),
                 capacity: initial_capacity.max(1),
+                handles: HashMap::new(),
             })),
             notify: Arc::new(Notify::new()),
         }
+    }
+
+    /// Worker registers the spawned task handle so we can abort it on cancel.
+    pub fn register_handle(&self, video_id: &str, handle: JoinHandle<()>) {
+        let mut state = self.inner.lock().unwrap();
+        state.handles.insert(video_id.to_string(), handle);
+    }
+
+    /// Cancel a job. If running → abort the task (kill_on_drop SIGKILLs yt-dlp).
+    /// If queued → remove from pending.
+    pub fn cancel(&self, video_id: &str) -> CancelOutcome {
+        let mut state = self.inner.lock().unwrap();
+        if let Some(h) = state.handles.remove(video_id) {
+            h.abort();
+            // The task was aborted; explicitly remove from in_flight so a new enqueue
+            // for the same video_id can proceed.
+            state.in_flight.remove(video_id);
+            self.notify.notify_one();
+            return CancelOutcome::AbortedRunning;
+        }
+        if let Some(pos) = state.pending.iter().position(|j| j.video_id == video_id) {
+            state.pending.remove(pos);
+            return CancelOutcome::RemovedFromQueue;
+        }
+        CancelOutcome::NotFound
     }
 
     /// Returns Some(true) if newly enqueued, Some(false) if already in flight or pending.
@@ -53,12 +91,13 @@ impl DownloadCoordinator {
         self.notify.notify_one();
     }
 
-    /// Mark a job complete: remove from in_flight and wake the worker so it can
-    /// pull the next pending job.
+    /// Mark a job complete: remove from in_flight + drop the handle, then wake the
+    /// worker so it can pull the next pending job.
     pub fn complete(&self, completed_video_id: &str) {
         {
             let mut state = self.inner.lock().unwrap();
             state.in_flight.remove(completed_video_id);
+            state.handles.remove(completed_video_id);
         }
         self.notify.notify_one();
     }

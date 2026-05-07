@@ -51,6 +51,9 @@ export const api = {
   downloadAllPending: (channelId: string) =>
     invoke<number>("download_all_pending", { channelId }),
 
+  cancelDownload: (videoId: string) =>
+    invoke<string>("cancel_download", { videoId }),
+
   getActiveDownloads: () =>
     invoke<DownloadProgress[]>("get_active_downloads"),
 

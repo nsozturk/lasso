@@ -1,4 +1,4 @@
-use crate::coordinator::{DownloadCoordinator, EnqueuedJob};
+use crate::coordinator::{CancelOutcome, DownloadCoordinator, EnqueuedJob};
 use crate::db::{now_seconds, Db};
 use crate::models::{Channel, ChannelPreview, DownloadProgress, Video};
 use crate::ytdlp;
@@ -259,6 +259,47 @@ pub async fn download_all_pending(
         }
     }
     Ok(enqueued)
+}
+
+/// Cancel a running or queued download. If running, aborts the spawned task and
+/// kills the yt-dlp child (via kill_on_drop). If queued, removes from the queue.
+/// Status is reset to `failed` so the user can retry. Progress entry is cleared.
+#[tauri::command]
+pub async fn cancel_download(
+    db: State<'_, DbState>,
+    progress: State<'_, ProgressState>,
+    coordinator: State<'_, CoordinatorState>,
+    video_id: String,
+) -> Result<String, String> {
+    let outcome = coordinator.inner().cancel(&video_id);
+
+    if outcome != CancelOutcome::NotFound {
+        let new_status = match outcome {
+            CancelOutcome::AbortedRunning => "failed",
+            CancelOutcome::RemovedFromQueue => "pending",
+            CancelOutcome::NotFound => unreachable!(),
+        };
+        let db = db.inner().clone();
+        let id_clone = video_id.clone();
+        let status_clone = new_status.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            db.update_video_status(&id_clone, &status_clone, None, None)
+        })
+        .await
+        .map_err(err)?
+        .map_err(err)?;
+
+        if let Ok(mut map) = progress.inner().lock() {
+            map.remove(&video_id);
+        }
+    }
+
+    Ok(match outcome {
+        CancelOutcome::AbortedRunning => "aborted_running",
+        CancelOutcome::RemovedFromQueue => "removed_from_queue",
+        CancelOutcome::NotFound => "not_found",
+    }
+    .to_string())
 }
 
 #[tauri::command]

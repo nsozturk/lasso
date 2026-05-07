@@ -27,6 +27,8 @@ machine — channel add → live progress → file on disk. Not packaged into a
   failed video. The background worker honours the `concurrent_downloads`
   setting (default 1) and runs jobs N-at-a-time, keeping the rest in a
   visible "Queued" state.
+- **Cancel** button (× next to the chip) on running or queued downloads —
+  aborts yt-dlp and resets the video so it can be retried.
 - "Sync now" button refreshes a channel's recent uploads.
 - Search (live filter), filter pills (All / Saved / New), Skip Shorts toggle,
   minimum-duration filter.
@@ -40,7 +42,7 @@ machine — channel add → live progress → file on disk. Not packaged into a
 - Bundled `yt-dlp` sidecar (no PATH dependency).
 - Custom Lasso app icon (currently default Tauri icon).
 - Background scheduler (auto-sync every N minutes / hours).
-- Pause / resume / cancel buttons.
+- Pause / resume buttons (cancel is shipped; pause needs `--continue`).
 - Toast UX for save / error feedback.
 - Tauri event channel for progress (replacing the 1-second polling).
 - macOS `.dmg`, Linux AppImage, Windows `.exe` releases.

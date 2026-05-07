@@ -135,6 +135,18 @@ export default function App() {
     [activeChannelId, refreshVideos]
   );
 
+  const handleCancel = useCallback(
+    async (videoId: string) => {
+      try {
+        await api.cancelDownload(videoId);
+        if (activeChannelId) refreshVideos(activeChannelId);
+      } catch (e) {
+        console.error("cancel_download failed", e);
+      }
+    },
+    [activeChannelId, refreshVideos]
+  );
+
   const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
 
   const handleToggleAuto = useCallback(
@@ -297,6 +309,7 @@ export default function App() {
                       video={v}
                       progress={progressMap[v.id]}
                       onDownload={handleDownload}
+                      onCancel={handleCancel}
                     />
                   ))
                 )}
