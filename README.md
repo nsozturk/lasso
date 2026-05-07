@@ -17,6 +17,12 @@ machine — channel add → live progress → file on disk. Not packaged into a
   the latest 25 videos.
 - One-click download with **live percentage + progress bar** per video card.
 - Per-channel quality preference: 1080p / 720p / Best, MP4 / WebM / MKV.
+- **Per-channel mode** — `video` or `audio`. Music channels in audio mode
+  download as the default audio format.
+- **Audio extraction** — MP3, M4A, FLAC, OPUS, WAV, OGG (Vorbis), AAC, ALAC.
+  Triggered by channel mode or per-video via the `⋮` menu on each video card.
+- **Audio Settings sheet** (♪ icon in toolbar) — default audio format and
+  bitrate / quality.
 - "Sync now" button refreshes a channel's recent uploads.
 - Search (live filter), filter pills (All / Saved / New), Skip Shorts toggle,
   minimum-duration filter.
@@ -27,9 +33,6 @@ machine — channel add → live progress → file on disk. Not packaged into a
 
 ## Coming soon
 
-- Audio extraction — MP3 / M4A / FLAC / OPUS / WAV / OGG / AAC, with a
-  separate Audio Settings sheet and per-video kebab menu override.
-- Per-channel mode (`video` vs `audio`) for music channels.
 - "Download all" button + actual concurrent-download queue that respects the
   setting.
 - Bundled `yt-dlp` sidecar (no PATH dependency).

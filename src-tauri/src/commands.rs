@@ -52,6 +52,7 @@ pub async fn add_channel(
     quality: Option<String>,
     format: Option<String>,
     skip_shorts: Option<bool>,
+    mode: Option<String>,
 ) -> Result<Channel, String> {
     let db_clone = db.inner().clone();
     let settings = tauri::async_runtime::spawn_blocking(move || db_clone.all_settings())
@@ -103,6 +104,10 @@ pub async fn add_channel(
         .to_string_lossy()
         .to_string();
 
+    let mode_pref = mode
+        .map(|m| if m == "audio" { "audio" } else { "video" }.to_string())
+        .unwrap_or_else(|| "video".to_string());
+
     let channel = Channel {
         id: preview.id.clone(),
         name: preview.name.clone(),
@@ -114,6 +119,7 @@ pub async fn add_channel(
         skip_shorts: skip_shorts_pref,
         quality_pref,
         format_pref,
+        mode: mode_pref,
         save_path,
         last_synced_at: Some(now_seconds()),
         created_at: now_seconds(),
@@ -178,26 +184,85 @@ pub async fn sync_channel(
 /// Fire-and-forget: marks the video as `downloading`, returns immediately,
 /// then runs yt-dlp in the background, streaming progress into the shared map,
 /// and updates final status to `downloaded`/`failed` on completion.
+///
+/// `audio_format` overrides the channel's mode — when set, the video is extracted
+/// as audio in the requested format (mp3 / m4a / flac / opus / wav / ogg / aac).
+/// When unset, the channel's `mode` field decides: `audio` → extract audio using the
+/// global `default_audio_format` setting; `video` → normal video download.
 #[tauri::command]
 pub async fn download_video(
     db: State<'_, DbState>,
     progress: State<'_, ProgressState>,
     video_id: String,
+    audio_format: Option<String>,
 ) -> Result<(), String> {
     let db: Arc<Db> = db.inner().clone();
     let progress: ProgressState = progress.inner().clone();
 
-    let (save_path, quality, format) = {
+    #[derive(Clone)]
+    struct ResolvedJob {
+        save_path: String,
+        kind: JobKind,
+    }
+    #[derive(Clone)]
+    enum JobKind {
+        Video {
+            quality: String,
+            format: String,
+        },
+        Audio {
+            audio_format: String,
+            audio_quality: String,
+        },
+    }
+
+    let job: ResolvedJob = {
         let db = db.clone();
         let id = video_id.clone();
-        tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<(String, String, String)> {
+        let override_audio = audio_format.clone();
+        tauri::async_runtime::spawn_blocking(move || -> anyhow::Result<ResolvedJob> {
             let channel_id = db
                 .get_video_channel(&id)?
                 .context("video not found in database")?;
             let channel = db
                 .get_channel(&channel_id)?
                 .context("channel for video not found")?;
-            Ok((channel.save_path, channel.quality_pref, channel.format_pref))
+
+            let kind = if let Some(fmt) = override_audio {
+                let settings = db.all_settings()?;
+                let q = settings
+                    .get("default_audio_quality")
+                    .cloned()
+                    .unwrap_or_else(|| "0".into());
+                JobKind::Audio {
+                    audio_format: fmt,
+                    audio_quality: q,
+                }
+            } else if channel.mode == "audio" {
+                let settings = db.all_settings()?;
+                let fmt = settings
+                    .get("default_audio_format")
+                    .cloned()
+                    .unwrap_or_else(|| "mp3".into());
+                let q = settings
+                    .get("default_audio_quality")
+                    .cloned()
+                    .unwrap_or_else(|| "0".into());
+                JobKind::Audio {
+                    audio_format: fmt,
+                    audio_quality: q,
+                }
+            } else {
+                JobKind::Video {
+                    quality: channel.quality_pref.clone(),
+                    format: channel.format_pref.clone(),
+                }
+            };
+
+            Ok(ResolvedJob {
+                save_path: channel.save_path,
+                kind,
+            })
         })
         .await
         .map_err(err)?
@@ -240,9 +305,25 @@ pub async fn download_video(
     };
 
     tauri::async_runtime::spawn(async move {
-        let save_dir = PathBuf::from(&save_path);
-        let download_result =
-            ytdlp::download_video(&save_dir, &video_id, &quality, &format, on_progress).await;
+        let save_dir = PathBuf::from(&job.save_path);
+        let download_result = match job.kind {
+            JobKind::Video { quality, format } => {
+                ytdlp::download_video(&save_dir, &video_id, &quality, &format, on_progress).await
+            }
+            JobKind::Audio {
+                audio_format,
+                audio_quality,
+            } => {
+                ytdlp::download_audio(
+                    &save_dir,
+                    &video_id,
+                    &audio_format,
+                    &audio_quality,
+                    on_progress,
+                )
+                .await
+            }
+        };
 
         let (status, file_path, file_size) = match &download_result {
             Ok((path, size)) => {

@@ -76,6 +76,7 @@ async fn seed_default_channel(db: Arc<Db>, app: tauri::AppHandle) {
                     .get("default_format")
                     .cloned()
                     .unwrap_or_else(|| "mp4".into()),
+                mode: "video".to_string(),
                 save_path,
                 last_synced_at: Some(now),
                 created_at: now,

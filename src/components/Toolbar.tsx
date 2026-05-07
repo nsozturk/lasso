@@ -1,9 +1,10 @@
-import { ClockIcon, SettingsIcon } from "../icons";
+import { ClockIcon, MusicNoteIcon, SettingsIcon } from "../icons";
 
 type Props = {
   searchQuery: string;
   onSearchChange: (q: string) => void;
   onOpenActivity: () => void;
+  onOpenAudioSettings: () => void;
   onOpenSettings: () => void;
 };
 
@@ -11,6 +12,7 @@ export function Toolbar({
   searchQuery,
   onSearchChange,
   onOpenActivity,
+  onOpenAudioSettings,
   onOpenSettings,
 }: Props) {
   return (
@@ -25,6 +27,13 @@ export function Toolbar({
       <div className="spacer" />
       <button className="btn-icon" title="Activity" onClick={onOpenActivity}>
         <ClockIcon />
+      </button>
+      <button
+        className="btn-icon"
+        title="Audio extraction settings"
+        onClick={onOpenAudioSettings}
+      >
+        <MusicNoteIcon />
       </button>
       <button className="btn-icon" title="Settings" onClick={onOpenSettings}>
         <SettingsIcon />

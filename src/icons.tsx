@@ -80,3 +80,19 @@ export const DownloadsBoxIcon = (p: SVGProps<SVGSVGElement>) => (
     <line x1="12" y1="15" x2="12" y2="3" />
   </svg>
 );
+
+export const MusicNoteIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} strokeWidth={1.8} {...p}>
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
+export const KebabIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} strokeWidth={2.4} {...p}>
+    <circle cx="12" cy="5.5" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="18.5" r="1.2" fill="currentColor" stroke="none" />
+  </svg>
+);

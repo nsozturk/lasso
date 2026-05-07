@@ -211,47 +211,19 @@ fn parse_progress_line(line: &str, video_id: &str) -> Option<DownloadProgress> {
     })
 }
 
-/// Download a single video to `save_dir`. Streams progress via callback.
-/// Returns the final file path and size in bytes.
-pub async fn download_video<F>(
-    save_dir: &Path,
+const PROGRESS_TEMPLATE: &str =
+    "download:%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s";
+
+async fn run_ytdlp_with_progress<F>(
+    args: &[&str],
     video_id: &str,
-    quality: &str,
-    format: &str,
     on_progress: F,
-) -> Result<(PathBuf, i64)>
+) -> Result<()>
 where
     F: Fn(DownloadProgress) + Send + 'static,
 {
-    std::fs::create_dir_all(save_dir).context("failed to create save directory")?;
-    let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    let template = save_dir.join(format!("{}.%(ext)s", video_id));
-    let template_str = template
-        .to_str()
-        .ok_or_else(|| anyhow!("save path contains non-UTF8 characters"))?;
-
-    let f_arg = format_arg_for(quality);
-    let merge_arg = merge_format_for(format);
-
-    // Template emits one line per progress tick; --newline forces newlines (vs \r overwrite).
-    let progress_template =
-        "download:%(progress._percent_str)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.speed)s|%(progress.eta)s";
-
     let mut child = Command::new("yt-dlp")
-        .args([
-            "-f",
-            f_arg,
-            "--merge-output-format",
-            merge_arg,
-            "-o",
-            template_str,
-            "--no-warnings",
-            "--no-playlist",
-            "--newline",
-            "--progress-template",
-            progress_template,
-            &url,
-        ])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -295,6 +267,47 @@ where
     if !status.success() {
         return Err(anyhow!("yt-dlp download failed: {}", stderr_buf.trim()));
     }
+    Ok(())
+}
+
+/// Download a single video to `save_dir`. Streams progress via callback.
+/// Returns the final file path and size in bytes.
+pub async fn download_video<F>(
+    save_dir: &Path,
+    video_id: &str,
+    quality: &str,
+    format: &str,
+    on_progress: F,
+) -> Result<(PathBuf, i64)>
+where
+    F: Fn(DownloadProgress) + Send + 'static,
+{
+    std::fs::create_dir_all(save_dir).context("failed to create save directory")?;
+    let url = format!("https://www.youtube.com/watch?v={}", video_id);
+    let template = save_dir.join(format!("{}.%(ext)s", video_id));
+    let template_str = template
+        .to_str()
+        .ok_or_else(|| anyhow!("save path contains non-UTF8 characters"))?;
+
+    let f_arg = format_arg_for(quality);
+    let merge_arg = merge_format_for(format);
+
+    let args = [
+        "-f",
+        f_arg,
+        "--merge-output-format",
+        merge_arg,
+        "-o",
+        template_str,
+        "--no-warnings",
+        "--no-playlist",
+        "--newline",
+        "--progress-template",
+        PROGRESS_TEMPLATE,
+        &url,
+    ];
+
+    run_ytdlp_with_progress(&args, video_id, on_progress).await?;
 
     for ext in [merge_arg, "mp4", "webm", "mkv", "m4a", "mp3"] {
         let path = save_dir.join(format!("{}.{}", video_id, ext));
@@ -305,6 +318,79 @@ where
     }
     Err(anyhow!(
         "yt-dlp finished but downloaded file not found in {}",
+        save_dir.display()
+    ))
+}
+
+/// Map a UI-facing audio format name to (yt-dlp `--audio-format` value, file extension).
+fn audio_format_args(audio_format: &str) -> (&'static str, &'static str) {
+    match audio_format.to_lowercase().as_str() {
+        "flac" => ("flac", "flac"),
+        "wav" => ("wav", "wav"),
+        "opus" => ("opus", "opus"),
+        "ogg" | "vorbis" => ("vorbis", "ogg"),
+        "m4a" => ("m4a", "m4a"),
+        "aac" => ("aac", "aac"),
+        "alac" => ("alac", "m4a"),
+        _ => ("mp3", "mp3"),
+    }
+}
+
+/// Download audio-only and convert to the requested format. `audio_quality` is yt-dlp's
+/// 0–10 scale (0 = best) for lossy codecs; ignored for FLAC / WAV / ALAC (lossless).
+pub async fn download_audio<F>(
+    save_dir: &Path,
+    video_id: &str,
+    audio_format: &str,
+    audio_quality: &str,
+    on_progress: F,
+) -> Result<(PathBuf, i64)>
+where
+    F: Fn(DownloadProgress) + Send + 'static,
+{
+    std::fs::create_dir_all(save_dir).context("failed to create save directory")?;
+    let url = format!("https://www.youtube.com/watch?v={}", video_id);
+    let template = save_dir.join(format!("{}.%(ext)s", video_id));
+    let template_str = template
+        .to_str()
+        .ok_or_else(|| anyhow!("save path contains non-UTF8 characters"))?;
+
+    let (yt_format, ext) = audio_format_args(audio_format);
+
+    let args = [
+        "-f",
+        "bestaudio/best",
+        "-x",
+        "--audio-format",
+        yt_format,
+        "--audio-quality",
+        audio_quality,
+        "-o",
+        template_str,
+        "--no-warnings",
+        "--no-playlist",
+        "--newline",
+        "--progress-template",
+        PROGRESS_TEMPLATE,
+        &url,
+    ];
+
+    run_ytdlp_with_progress(&args, video_id, on_progress).await?;
+
+    let path = save_dir.join(format!("{}.{}", video_id, ext));
+    if path.exists() {
+        let metadata = std::fs::metadata(&path)?;
+        return Ok((path, metadata.len() as i64));
+    }
+    for fallback in ["mp3", "m4a", "flac", "wav", "opus", "ogg", "aac"] {
+        let path = save_dir.join(format!("{}.{}", video_id, fallback));
+        if path.exists() {
+            let metadata = std::fs::metadata(&path)?;
+            return Ok((path, metadata.len() as i64));
+        }
+    }
+    Err(anyhow!(
+        "yt-dlp finished but audio file not found in {}",
         save_dir.display()
     ))
 }

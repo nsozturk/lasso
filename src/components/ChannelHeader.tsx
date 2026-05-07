@@ -19,7 +19,18 @@ export function ChannelHeader({ channel, onToggleAuto, onSync, syncing }: Props)
           {channel.avatarInitial}
         </div>
         <div className="ch-info">
-          <h1>{channel.name}</h1>
+          <h1>
+            {channel.name}
+            {channel.mode === "audio" ? (
+              <span
+                className="chip queued"
+                style={{ marginLeft: 10, fontSize: 10, verticalAlign: "middle" }}
+                title="Audio mode — downloads will be extracted as audio"
+              >
+                ♪ Audio
+              </span>
+            ) : null}
+          </h1>
           <div className="ch-meta">
             {channel.handle} · {channel.subscriberLabel}
           </div>

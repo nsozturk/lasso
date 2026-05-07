@@ -7,6 +7,7 @@ import { VideoCard } from "./components/VideoCard";
 import { ActivityDrawer } from "./components/ActivityDrawer";
 import { AddChannelSheet } from "./components/AddChannelSheet";
 import { SettingsSheet } from "./components/SettingsSheet";
+import { AudioSettingsSheet } from "./components/AudioSettingsSheet";
 import { api } from "./api";
 import { decorateChannel, decorateVideo } from "./format";
 import type { Channel, DownloadProgress, Video } from "./types";
@@ -23,6 +24,7 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [audioSettingsOpen, setAudioSettingsOpen] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [progressMap, setProgressMap] = useState<Record<string, DownloadProgress>>({});
   const [syncingChannelIds, setSyncingChannelIds] = useState<Set<string>>(new Set());
@@ -121,9 +123,9 @@ export default function App() {
   }, [hasInFlight]);
 
   const handleDownload = useCallback(
-    async (videoId: string) => {
+    async (videoId: string, audioFormat?: string) => {
       try {
-        await api.downloadVideo(videoId);
+        await api.downloadVideo(videoId, audioFormat);
         if (activeChannelId) refreshVideos(activeChannelId);
       } catch (e) {
         console.error("download_video failed", e);
@@ -221,6 +223,7 @@ export default function App() {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           onOpenActivity={() => setDrawerOpen(true)}
+          onOpenAudioSettings={() => setAudioSettingsOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <div className="main-scroll">
@@ -284,6 +287,10 @@ export default function App() {
       <SettingsSheet
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+      />
+      <AudioSettingsSheet
+        open={audioSettingsOpen}
+        onClose={() => setAudioSettingsOpen(false)}
       />
     </div>
   );

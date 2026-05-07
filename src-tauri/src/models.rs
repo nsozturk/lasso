@@ -13,6 +13,7 @@ pub struct Channel {
     pub skip_shorts: bool,
     pub quality_pref: String,
     pub format_pref: String,
+    pub mode: String,
     pub save_path: String,
     pub last_synced_at: Option<i64>,
     pub created_at: i64,

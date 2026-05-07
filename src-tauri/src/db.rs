@@ -39,6 +39,7 @@ impl Db {
                 skip_shorts INTEGER NOT NULL DEFAULT 1,
                 quality_pref TEXT NOT NULL DEFAULT '1080p',
                 format_pref TEXT NOT NULL DEFAULT 'mp4',
+                mode TEXT NOT NULL DEFAULT 'video',
                 save_path TEXT NOT NULL,
                 last_synced_at INTEGER,
                 created_at INTEGER NOT NULL
@@ -73,6 +74,10 @@ impl Db {
             "ALTER TABLE channels ADD COLUMN format_pref TEXT NOT NULL DEFAULT 'mp4'",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE channels ADD COLUMN mode TEXT NOT NULL DEFAULT 'video'",
+            [],
+        );
 
         Ok(Self {
             conn: Mutex::new(conn),
@@ -89,6 +94,8 @@ impl Db {
             ("default_backlog", "25"),
             ("skip_shorts_default", "1"),
             ("concurrent_downloads", "1"),
+            ("default_audio_format", "mp3"),
+            ("default_audio_quality", "0"),
         ];
         for (k, v) in defaults {
             conn.execute(
@@ -210,9 +217,9 @@ impl Db {
         conn.execute(
             r#"INSERT INTO channels
               (id, name, handle, url, subscriber_count, avatar_url,
-               auto_archive, skip_shorts, quality_pref, format_pref, save_path,
+               auto_archive, skip_shorts, quality_pref, format_pref, mode, save_path,
                last_synced_at, created_at)
-              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
             params![
                 c.id,
                 c.name,
@@ -224,6 +231,7 @@ impl Db {
                 c.skip_shorts as i64,
                 c.quality_pref,
                 c.format_pref,
+                c.mode,
                 c.save_path,
                 c.last_synced_at,
                 c.created_at,
@@ -237,7 +245,7 @@ impl Db {
         let mut stmt = conn.prepare(
             r#"SELECT
                 c.id, c.name, c.handle, c.url, c.subscriber_count, c.avatar_url,
-                c.auto_archive, c.skip_shorts, c.quality_pref, c.format_pref, c.save_path,
+                c.auto_archive, c.skip_shorts, c.quality_pref, c.format_pref, c.mode, c.save_path,
                 c.last_synced_at, c.created_at,
                 (SELECT COUNT(*) FROM videos v WHERE v.channel_id = c.id) AS video_count,
                 COALESCE((SELECT SUM(file_size_bytes) FROM videos v WHERE v.channel_id = c.id), 0) AS storage_bytes
@@ -256,11 +264,12 @@ impl Db {
                 skip_shorts: r.get::<_, i64>(7)? != 0,
                 quality_pref: r.get(8)?,
                 format_pref: r.get(9)?,
-                save_path: r.get(10)?,
-                last_synced_at: r.get(11)?,
-                created_at: r.get(12)?,
-                video_count: r.get(13)?,
-                storage_bytes: r.get(14)?,
+                mode: r.get(10)?,
+                save_path: r.get(11)?,
+                last_synced_at: r.get(12)?,
+                created_at: r.get(13)?,
+                video_count: r.get(14)?,
+                storage_bytes: r.get(15)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)

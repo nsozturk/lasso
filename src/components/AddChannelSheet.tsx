@@ -8,6 +8,7 @@ type Props = {
 };
 
 type GrabMode = "now-on" | "last-n" | "full";
+type ChannelMode = "video" | "audio";
 
 export function AddChannelSheet({ open, onClose, onAdded }: Props) {
   const [url, setUrl] = useState("");
@@ -15,6 +16,7 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
   const [lastN, setLastN] = useState<number>(25);
   const [quality, setQuality] = useState<string>("1080p");
   const [format, setFormat] = useState<string>("mp4");
+  const [mode, setMode] = useState<ChannelMode>("video");
   const [skipShorts, setSkipShorts] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
   function reset() {
     setUrl("");
     setGrabMode("now-on");
+    setMode("video");
     setError(null);
   }
 
@@ -60,6 +63,7 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
         quality,
         format,
         skipShorts,
+        mode,
       );
       onAdded(channel.id);
       reset();
@@ -130,12 +134,37 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
             </label>
           </div>
 
-          <div className="field-label">Quality</div>
+          <div className="field-label">Mode</div>
+          <div className="inline-controls">
+            <label className="checkbox" style={{ cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="channel-mode"
+                checked={mode === "video"}
+                onChange={() => setMode("video")}
+              />
+              Video
+            </label>
+            <label className="checkbox" style={{ cursor: "pointer" }}>
+              <input
+                type="radio"
+                name="channel-mode"
+                checked={mode === "audio"}
+                onChange={() => setMode("audio")}
+              />
+              Audio (extract music)
+            </label>
+          </div>
+
+          <div className="field-label">
+            {mode === "audio" ? "Video quality (unused in audio mode)" : "Quality"}
+          </div>
           <div className="inline-controls">
             <select
               className="select"
               value={quality}
               onChange={(e) => setQuality(e.target.value)}
+              disabled={mode === "audio"}
             >
               <option value="1080p">1080p</option>
               <option value="720p">720p</option>
@@ -145,6 +174,7 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
               className="select"
               value={format}
               onChange={(e) => setFormat(e.target.value)}
+              disabled={mode === "audio"}
             >
               <option value="mp4">MP4</option>
               <option value="webm">WebM</option>
@@ -160,6 +190,18 @@ export function AddChannelSheet({ open, onClose, onAdded }: Props) {
               Skip Shorts
             </label>
           </div>
+          {mode === "audio" ? (
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: "var(--text-tertiary)",
+              }}
+            >
+              Audio format and quality are configured in the Audio Settings sheet
+              (♪ icon in the toolbar).
+            </div>
+          ) : null}
 
           {error ? (
             <div

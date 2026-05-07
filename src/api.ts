@@ -28,6 +28,7 @@ export const api = {
     quality?: string,
     format?: string,
     skipShorts?: boolean,
+    mode?: "video" | "audio",
   ) =>
     invoke<ApiChannel>("add_channel", {
       url,
@@ -35,6 +36,7 @@ export const api = {
       quality,
       format,
       skipShorts,
+      mode,
     }),
 
   syncChannel: (channelId: string, maxVideos?: number) =>
@@ -43,8 +45,8 @@ export const api = {
   setAutoArchive: (channelId: string, enabled: boolean) =>
     invoke<void>("set_auto_archive", { channelId, enabled }),
 
-  downloadVideo: (videoId: string) =>
-    invoke<void>("download_video", { videoId }),
+  downloadVideo: (videoId: string, audioFormat?: string) =>
+    invoke<void>("download_video", { videoId, audioFormat }),
 
   getActiveDownloads: () =>
     invoke<DownloadProgress[]>("get_active_downloads"),

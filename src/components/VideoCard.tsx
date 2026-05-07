@@ -1,6 +1,18 @@
+import { useEffect, useRef, useState } from "react";
 import type { DownloadProgress, Video, VideoStatus } from "../types";
-import { CheckIcon, DownloadIcon } from "../icons";
+import { CheckIcon, DownloadIcon, KebabIcon } from "../icons";
 import { formatBytes, formatSpeed } from "../format";
+
+const AUDIO_FORMATS: { value: string; label: string }[] = [
+  { value: "mp3", label: "MP3" },
+  { value: "m4a", label: "M4A" },
+  { value: "flac", label: "FLAC (lossless)" },
+  { value: "opus", label: "OPUS" },
+  { value: "wav", label: "WAV (lossless)" },
+  { value: "ogg", label: "OGG (Vorbis)" },
+  { value: "aac", label: "AAC" },
+  { value: "alac", label: "ALAC (lossless)" },
+];
 
 function StatusChip({ status }: { status: VideoStatus }) {
   switch (status) {
@@ -39,7 +51,7 @@ function StatusChip({ status }: { status: VideoStatus }) {
 type Props = {
   video: Video;
   progress?: DownloadProgress;
-  onDownload?: (id: string) => void;
+  onDownload?: (id: string, audioFormat?: string) => void;
 };
 
 export function VideoCard({ video, progress, onDownload }: Props) {
@@ -62,6 +74,26 @@ export function VideoCard({ video, progress, onDownload }: Props) {
         .filter(Boolean)
         .join(" · ")
     : null;
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   return (
     <li className="video-card">
@@ -102,6 +134,46 @@ export function VideoCard({ video, progress, onDownload }: Props) {
           {progressMeta ?? video.metaLine}
         </span>
       </div>
+
+      {onDownload ? (
+        <div className="video-kebab" ref={menuRef}>
+          <button
+            className="kebab-btn"
+            title="More download options"
+            aria-label="More download options"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <KebabIcon />
+          </button>
+          {menuOpen ? (
+            <div className="kebab-menu" role="menu">
+              <button
+                className="kebab-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDownload(video.id);
+                }}
+              >
+                Download as Video (channel default)
+              </button>
+              <div className="kebab-menu-section">Audio extraction</div>
+              {AUDIO_FORMATS.map((f) => (
+                <button
+                  key={f.value}
+                  className="kebab-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDownload(video.id, f.value);
+                  }}
+                >
+                  Download as {f.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {isDownloading ? (
         <div className="progress-bar">
           <div className="fill" style={{ width: `${percent}%` }} />

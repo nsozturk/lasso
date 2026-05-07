@@ -445,9 +445,9 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .video-list { display: flex; flex-direction: column; gap: 8px; }
 .video-card {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
   display: grid;
-  grid-template-columns: 168px 1fr auto;
+  grid-template-columns: 168px 1fr auto auto;
   gap: 16px;
   padding: 10px;
   border-radius: var(--r-lg);
@@ -873,6 +873,74 @@ a { color: inherit; text-decoration: none; cursor: pointer; }
 .btn-secondary:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* Video kebab menu */
+.video-kebab {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.kebab-btn {
+  background: transparent;
+  border: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 100ms, color 100ms;
+}
+.kebab-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-primary);
+}
+.kebab-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.kebab-menu {
+  position: absolute;
+  top: 32px;
+  right: 0;
+  min-width: 220px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+  z-index: 100;
+  animation: kebab-pop 100ms ease-out;
+}
+@keyframes kebab-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.kebab-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.kebab-menu-item:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.kebab-menu-section {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  padding: 8px 10px 4px;
 }
 
 /* Settings info section */

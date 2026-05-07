@@ -10,6 +10,7 @@ export type ApiChannel = {
   skipShorts: boolean;
   qualityPref: string;
   formatPref: string;
+  mode: "video" | "audio";
   savePath: string;
   lastSyncedAt: number | null;
   createdAt: number;
