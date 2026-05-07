@@ -4,7 +4,7 @@ mod db;
 mod models;
 mod ytdlp;
 
-use crate::commands::{FetchState, ProgressState};
+use crate::commands::{FetchState, FetchTaskState, ProgressState};
 use crate::coordinator::{DownloadCoordinator, EnqueuedJob};
 use crate::db::Db;
 use crate::models::{DownloadProgress, FetchProgress};
@@ -349,6 +349,9 @@ pub fn run() {
             let fetch_state: FetchState = Arc::new(Mutex::new(HashMap::<String, FetchProgress>::new()));
             app.manage(fetch_state);
 
+            let fetch_tasks: FetchTaskState = Arc::new(Mutex::new(HashMap::new()));
+            app.manage(fetch_tasks);
+
             let initial_capacity = db
                 .all_settings()
                 .ok()
@@ -455,6 +458,7 @@ pub fn run() {
             commands::fetch_channel_preview,
             commands::add_channel,
             commands::sync_channel,
+            commands::cancel_channel_fetch,
             commands::set_auto_archive,
             commands::delete_channel,
             commands::download_video,

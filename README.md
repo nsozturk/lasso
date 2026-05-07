@@ -35,6 +35,10 @@ machine — channel add → live progress → file on disk. Not packaged into a
   silently dedupes existing rows.
 - **Remove a channel** — hover over the channel in the sidebar and click ×.
   Confirms before removal; downloaded files on disk stay put.
+- **Cancel an in-flight fetch** — while videos are streaming in, the
+  channel header turns the Sync button into a "Cancel fetch" action that
+  aborts the streaming task (yt-dlp child dies via `kill_on_drop`).
+  Already-imported videos stay in the DB.
 - One-click download with **live percentage + progress bar** per video card.
 - Per-channel quality preference: 1080p / 720p / Best, MP4 / WebM / MKV.
 - **Per-channel mode** — `video` or `audio`. Music channels in audio mode

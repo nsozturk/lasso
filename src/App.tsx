@@ -272,6 +272,22 @@ export default function App() {
     [activeChannelId, refreshVideos, toast],
   );
 
+  const handleCancelFetch = useCallback(async () => {
+    if (!activeChannelId) return;
+    try {
+      const aborted = await api.cancelChannelFetch(activeChannelId);
+      setFetchMap((m) => {
+        const next = { ...m };
+        delete next[activeChannelId];
+        return next;
+      });
+      if (aborted) toast("Fetch cancelled", "success");
+    } catch (e) {
+      console.error("cancel_channel_fetch failed", e);
+      toast("Couldn't cancel fetch", "error");
+    }
+  }, [activeChannelId, toast]);
+
   const handleSync = useCallback(async () => {
     if (!activeChannel) return;
     const id = activeChannel.id;
@@ -401,6 +417,8 @@ export default function App() {
                 downloadingAll={isActiveBulkDownloading}
                 onStopAll={handleStopAll}
                 inFlightCount={inFlightCount}
+                fetching={isActiveFetching}
+                onCancelFetch={handleCancelFetch}
               />
               <FilterBar
                 filter={filter}

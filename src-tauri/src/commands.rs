@@ -10,6 +10,7 @@ use tauri::{Manager, State};
 pub type DbState = Arc<Db>;
 pub type ProgressState = Arc<Mutex<HashMap<String, DownloadProgress>>>;
 pub type FetchState = Arc<Mutex<HashMap<String, FetchProgress>>>;
+pub type FetchTaskState = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
 pub type CoordinatorState = DownloadCoordinator;
 
 fn err<E: std::fmt::Display>(e: E) -> String {
@@ -55,6 +56,7 @@ pub async fn add_channel(
     app: tauri::AppHandle,
     db: State<'_, DbState>,
     fetch_state: State<'_, FetchState>,
+    fetch_tasks: State<'_, FetchTaskState>,
     url: String,
     initial_video_count: Option<u32>,
     quality: Option<String>,
@@ -187,7 +189,10 @@ pub async fn add_channel(
 
         let start = bootstrap_count + 1;
         let end = max;
-        tauri::async_runtime::spawn(async move {
+        let fetch_tasks_clone = fetch_tasks.inner().clone();
+        let cid_for_unreg = channel.id.clone();
+        let fetch_tasks_for_unreg = fetch_tasks_clone.clone();
+        let handle = tokio::spawn(async move {
             let fetch_state_for_cb = fetch_state_clone.clone();
             let db_for_cb = db_for_stream.clone();
             let channel_id_for_cb = channel_id.clone();
@@ -195,7 +200,6 @@ pub async fn add_channel(
             let on_video = move |video: Video| {
                 let cid = channel_id_for_cb.clone();
                 let videos = vec![video];
-                // Insert immediately (sync, fast).
                 if let Err(e) = db_for_cb.upsert_videos(&videos) {
                     eprintln!("[stream] upsert failed for {}: {}", cid, e);
                     return;
@@ -216,11 +220,20 @@ pub async fn add_channel(
             } else {
                 eprintln!("[stream] finished for {}", channel_id);
             }
-            // Drop entry — UI will see fetched == expected (or just gone).
             if let Ok(mut map) = fetch_state_clone.lock() {
                 map.remove(&channel_id);
             }
+            if let Ok(mut map) = fetch_tasks_for_unreg.lock() {
+                map.remove(&channel_id);
+            }
         });
+        {
+            let mut map = match fetch_tasks_clone.lock() {
+                Ok(m) => m,
+                Err(_) => return Err("fetch task state poisoned".to_string()),
+            };
+            map.insert(cid_for_unreg, handle);
+        }
     }
 
     let db_clone = db.inner().clone();
@@ -248,6 +261,7 @@ pub async fn get_fetch_progress(
 pub async fn sync_channel(
     db: State<'_, DbState>,
     fetch_state: State<'_, FetchState>,
+    fetch_tasks: State<'_, FetchTaskState>,
     channel_id: String,
     max_videos: Option<u32>,
 ) -> Result<i64, String> {
@@ -277,7 +291,10 @@ pub async fn sync_channel(
     let db_for_stream = db.inner().clone();
     let cid_for_stream = channel_id.clone();
     let url_for_stream = channel.url.clone();
-    tauri::async_runtime::spawn(async move {
+    let fetch_tasks_clone = fetch_tasks.inner().clone();
+    let cid_for_unreg = channel_id.clone();
+    let fetch_tasks_for_unreg = fetch_tasks_clone.clone();
+    let handle = tokio::spawn(async move {
         let fs_for_cb = fs.clone();
         let db_for_cb = db_for_stream.clone();
         let cid_for_cb = cid_for_stream.clone();
@@ -302,15 +319,49 @@ pub async fn sync_channel(
         if let Err(e) = res {
             eprintln!("[sync] {} failed: {}", cid_for_stream, e);
         }
-        // Mark last-synced regardless — partial sync still beats no sync.
         let _ = db_for_stream.set_last_synced(&cid_for_stream);
 
         if let Ok(mut map) = fs.lock() {
             map.remove(&cid_for_stream);
         }
+        if let Ok(mut map) = fetch_tasks_for_unreg.lock() {
+            map.remove(&cid_for_stream);
+        }
     });
+    {
+        let mut map = match fetch_tasks_clone.lock() {
+            Ok(m) => m,
+            Err(_) => return Err("fetch task state poisoned".to_string()),
+        };
+        map.insert(cid_for_unreg, handle);
+    }
 
     Ok(0)
+}
+
+/// Cancel an in-flight channel fetch (initial add or sync). Aborts the
+/// streaming task so yt-dlp's child dies via `kill_on_drop`. Clears any
+/// remaining FetchProgress entry. Already-imported videos stay in the DB.
+#[tauri::command]
+pub async fn cancel_channel_fetch(
+    fetch_state: State<'_, FetchState>,
+    fetch_tasks: State<'_, FetchTaskState>,
+    channel_id: String,
+) -> Result<bool, String> {
+    let aborted = if let Ok(mut map) = fetch_tasks.inner().lock() {
+        if let Some(h) = map.remove(&channel_id) {
+            h.abort();
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if let Ok(mut map) = fetch_state.inner().lock() {
+        map.remove(&channel_id);
+    }
+    Ok(aborted)
 }
 
 /// Enqueue a single video for download. Returns immediately. The actual yt-dlp run

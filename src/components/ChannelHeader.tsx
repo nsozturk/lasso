@@ -11,6 +11,8 @@ type Props = {
   downloadingAll?: boolean;
   onStopAll: () => void;
   inFlightCount: number;
+  fetching?: boolean;
+  onCancelFetch?: () => void;
 };
 
 export function ChannelHeader({
@@ -23,6 +25,8 @@ export function ChannelHeader({
   downloadingAll,
   onStopAll,
   inFlightCount,
+  fetching,
+  onCancelFetch,
 }: Props) {
   return (
     <>
@@ -60,14 +64,25 @@ export function ChannelHeader({
             <span className="switch" />
             <span>Auto-archive</span>
           </label>
-          <button
-            className="btn-secondary"
-            onClick={onSync}
-            disabled={syncing}
-          >
-            <SyncIcon />
-            {syncing ? "Syncing…" : "Sync now"}
-          </button>
+          {fetching && onCancelFetch ? (
+            <button
+              className="btn-secondary"
+              onClick={onCancelFetch}
+              title="Cancel the in-flight fetch"
+            >
+              <CloseIcon />
+              Cancel fetch
+            </button>
+          ) : (
+            <button
+              className="btn-secondary"
+              onClick={onSync}
+              disabled={syncing}
+            >
+              <SyncIcon />
+              {syncing ? "Syncing…" : "Sync now"}
+            </button>
+          )}
           <button
             className="btn-primary"
             onClick={onDownloadAll}

@@ -43,6 +43,9 @@ export const api = {
   syncChannel: (channelId: string, maxVideos?: number) =>
     invoke<number>("sync_channel", { channelId, maxVideos }),
 
+  cancelChannelFetch: (channelId: string) =>
+    invoke<boolean>("cancel_channel_fetch", { channelId }),
+
   setAutoArchive: (channelId: string, enabled: boolean) =>
     invoke<void>("set_auto_archive", { channelId, enabled }),
 
